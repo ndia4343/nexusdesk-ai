@@ -115,6 +115,7 @@ async def root():
 
 
 @app.get("/api/health", tags=["Health"])
+@app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint for container probes and monitoring."""
     return {

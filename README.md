@@ -1,3 +1,13 @@
+---
+title: Nexusdesk Ai
+emoji: ⚡
+colorFrom: blue
+colorTo: green
+sdk: gradio
+app_file: app.py
+pinned: false
+---
+
 # NexusDesk AI — Agentic RAG Customer Support Engine
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -147,6 +157,6 @@ The repository includes a production-ready `Dockerfile` fully conforming to Hugg
 - Fast caching of dependencies and datasets.
 
 To deploy on Hugging Face Spaces:
-1. Create a new Space on [Hugging Face](https://huggingface.co/spaces) and select **Docker** as the SDK.
+1. Create a new Space on [Hugging Face](https://huggingface.co/spaces) and select **Docker** or **Gradio** as the SDK.
 2. Push this repository to your Space remote.
 3. Configure `N8N_WEBHOOK_URL`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` under the Space's **Settings > Variables and secrets** as needed.

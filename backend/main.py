@@ -8,6 +8,14 @@ import logging
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+
+# Load .env automatically from project root and current working directory
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(env_path):
+    load_dotenv(dotenv_path=env_path)
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field

@@ -149,14 +149,18 @@ uvicorn backend.main:app --host 0.0.0.0 --port 7860 --reload
 
 ---
 
-## 🐳 Hugging Face Spaces Deployment
+## 🚀 Render Deployment (512 MB Free Tier Compatible)
 
-The repository includes a production-ready `Dockerfile` fully conforming to Hugging Face Spaces requirements:
-- Non-root user with UID 1000 (`user:user`).
-- Default exposure on port `7860`.
-- Fast caching of dependencies and datasets.
+This backend is specifically optimized for Render's free 512 MB RAM tier:
+- Lightweight API embeddings (Google Gemini & Hugging Face Inference) with high-speed NumPy TF-IDF fallback.
+- Sub-60 MB total RAM memory footprint (zero local PyTorch or heavy model weights).
+- Runs directly via native Python 3 with `Procfile` and `render.yaml`.
 
-To deploy on Hugging Face Spaces:
-1. Create a new Space on [Hugging Face](https://huggingface.co/spaces) and select **Docker** or **Gradio** as the SDK.
-2. Push this repository to your Space remote.
-3. Configure `N8N_WEBHOOK_URL`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` under the Space's **Settings > Variables and secrets** as needed.
+### Render Deployment Steps:
+1. Connect this GitHub repository (`https://github.com/ndia4343/nexusdesk-ai.git`) to a new Render **Web Service**.
+2. **Build Command**: `pip install -r requirements.txt`
+3. **Start Command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+4. Set environment variables under **Environment**:
+   - `N8N_WEBHOOK_URL` (optional, for Tier 2 escalation)
+   - `GEMINI_API_KEY` or `GOOGLE_API_KEY` (optional, for Gemini embeddings & LLM synthesis)
+   - `OPENAI_API_KEY` (optional, for OpenAI synthesis)

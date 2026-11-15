@@ -34,6 +34,8 @@ if not DATA_DIR.exists():
     DATA_DIR = Path(__file__).resolve().parent / "dataset"
 PRODUCTS_CSV_PATH = str(DATA_DIR / "amazon_products.csv")
 POLICIES_MD_PATH = str(DATA_DIR / "policies.md")
+CLINIC_POLICIES_MD_PATH = str(DATA_DIR / "clinic_policies.md")
+HR_POLICIES_MD_PATH = str(DATA_DIR / "hr_policies.md")
 
 # ==============================================================================
 # STATE DEFINITION
@@ -71,7 +73,7 @@ class VectorStoreManager:
 
     def __init__(self):
         self.workspaces: Dict[str, Dict[str, Any]] = {}
-        self._initialize_workspace("demo")
+        self._initialize_workspaces()
 
     @classmethod
     def get_instance(cls):
@@ -81,40 +83,48 @@ class VectorStoreManager:
 
     @property
     def chunks(self) -> List[Dict[str, Any]]:
-        return self._get_workspace_data("demo")["chunks"]
+        return self._get_workspace_data("retail_ops")["chunks"]
 
     @property
     def vocab(self) -> Dict[str, int]:
-        return self._get_workspace_data("demo")["vocab"]
+        return self._get_workspace_data("retail_ops")["vocab"]
 
     @property
     def idf(self) -> Dict[str, float]:
-        return self._get_workspace_data("demo")["idf"]
+        return self._get_workspace_data("retail_ops")["idf"]
 
     @property
     def chunk_tfidf_vectors(self):
-        return self._get_workspace_data("demo")["chunk_tfidf_vectors"]
+        return self._get_workspace_data("retail_ops")["chunk_tfidf_vectors"]
+
+    def _normalize_workspace_id(self, workspace_id: str) -> str:
+        ws = (workspace_id or "").strip().lower()
+        if ws in ("demo", "retail", "retail_ops", "ecommerce"):
+            return "retail_ops"
+        elif ws in ("clinic", "clinic_ops", "healthcare"):
+            return "clinic_ops"
+        elif ws in ("hr", "hr_ops", "internal"):
+            return "hr_ops"
+        return ws or "retail_ops"
 
     def _get_workspace_data(self, workspace_id: str) -> Dict[str, Any]:
-        if workspace_id not in self.workspaces:
-            if workspace_id == "demo":
-                self._initialize_workspace("demo")
-            else:
-                self.workspaces[workspace_id] = {
-                    "chunks": [],
-                    "vocab": {},
-                    "idf": {},
-                    "chunk_tfidf_vectors": None
-                }
-        return self.workspaces[workspace_id]
+        norm_id = self._normalize_workspace_id(workspace_id)
+        if norm_id not in self.workspaces:
+            self.workspaces[norm_id] = {
+                "chunks": [],
+                "vocab": {},
+                "idf": {},
+                "chunk_tfidf_vectors": None
+            }
+        return self.workspaces[norm_id]
 
-    def _load_policy_chunks(self) -> List[Dict[str, Any]]:
+    def _load_markdown_sections(self, file_path: str, title_prefix: str, chunk_type: str) -> List[Dict[str, Any]]:
         chunks = []
-        if not os.path.exists(POLICIES_MD_PATH):
-            logger.warning("policies.md not found at %s", POLICIES_MD_PATH)
+        if not os.path.exists(file_path):
+            logger.warning("Markdown file not found at %s", file_path)
             return chunks
 
-        with open(POLICIES_MD_PATH, "r", encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         sections = re.split(r'\n(?=##\s+)', content)
@@ -126,12 +136,15 @@ class VectorStoreManager:
             title = lines[0].replace('##', '').strip()
             body = "\n".join(lines[1:]).strip()
             chunks.append({
-                "title": f"Store Policy: {title}",
+                "title": f"{title_prefix}: {title}",
                 "content": sec,
                 "snippet": body[:320] + ("..." if len(body) > 320 else ""),
-                "type": "policy"
+                "type": chunk_type
             })
         return chunks
+
+    def _load_policy_chunks(self) -> List[Dict[str, Any]]:
+        return self._load_markdown_sections(POLICIES_MD_PATH, "Store Policy", "policy")
 
     def _load_product_chunks(self) -> List[Dict[str, Any]]:
         chunks = []
@@ -169,24 +182,41 @@ class VectorStoreManager:
 
         return chunks
 
-    def _initialize_workspace(self, workspace_id: str):
-        if workspace_id == "demo":
-            demo_chunks = self._load_policy_chunks() + self._load_product_chunks()
-            self.workspaces["demo"] = {
-                "chunks": demo_chunks,
-                "vocab": {},
-                "idf": {},
-                "chunk_tfidf_vectors": None
-            }
-            self._build_tfidf_index("demo")
-            logger.info("Loaded %d knowledge chunks for demo workspace", len(demo_chunks))
-        else:
-            self.workspaces[workspace_id] = {
-                "chunks": [],
-                "vocab": {},
-                "idf": {},
-                "chunk_tfidf_vectors": None
-            }
+    def _initialize_workspaces(self):
+        # 1. Retail Ops ("E-Commerce & Retail")
+        retail_chunks = self._load_policy_chunks() + self._load_product_chunks()
+        self.workspaces["retail_ops"] = {
+            "chunks": retail_chunks,
+            "vocab": {},
+            "idf": {},
+            "chunk_tfidf_vectors": None
+        }
+        self._build_tfidf_index("retail_ops")
+
+        # 2. Clinic Ops ("Clinic & Healthcare Desk")
+        clinic_chunks = self._load_markdown_sections(CLINIC_POLICIES_MD_PATH, "Clinical Policy", "clinic_faq")
+        self.workspaces["clinic_ops"] = {
+            "chunks": clinic_chunks,
+            "vocab": {},
+            "idf": {},
+            "chunk_tfidf_vectors": None
+        }
+        self._build_tfidf_index("clinic_ops")
+
+        # 3. HR Ops ("HR & Internal Operations")
+        hr_chunks = self._load_markdown_sections(HR_POLICIES_MD_PATH, "HR Policy", "hr_policy")
+        self.workspaces["hr_ops"] = {
+            "chunks": hr_chunks,
+            "vocab": {},
+            "idf": {},
+            "chunk_tfidf_vectors": None
+        }
+        self._build_tfidf_index("hr_ops")
+
+        logger.info(
+            "Pre-seeded 3 commercial workspaces: retail_ops (%d chunks), clinic_ops (%d chunks), hr_ops (%d chunks)",
+            len(retail_chunks), len(clinic_chunks), len(hr_chunks)
+        )
 
     def _tokenize(self, text: str) -> List[str]:
         return [w.lower() for w in re.findall(r'[a-zA-Z0-9]+', text) if len(w) > 2]
@@ -245,18 +275,19 @@ class VectorStoreManager:
 
     def clear_workspace(self, workspace_id: str):
         """Resets knowledge base for a workspace."""
-        if workspace_id == "demo":
-            self._initialize_workspace("demo")
+        norm_id = self._normalize_workspace_id(workspace_id)
+        if norm_id in ("retail_ops", "clinic_ops", "hr_ops"):
+            self._initialize_workspaces()
         else:
-            self.workspaces[workspace_id] = {
+            self.workspaces[norm_id] = {
                 "chunks": [],
                 "vocab": {},
                 "idf": {},
                 "chunk_tfidf_vectors": None
             }
-        logger.info("Cleared knowledge base for workspace '%s'", workspace_id)
+        logger.info("Cleared knowledge base for workspace '%s'", norm_id)
 
-    def search(self, query: str, workspace_id: str = "demo", top_k: int = 4) -> List[Dict[str, Any]]:
+    def search(self, query: str, workspace_id: str = "retail_ops", top_k: int = 4) -> List[Dict[str, Any]]:
         """
         Calculates semantic similarity using high-speed TF-IDF cosine similarity
         strictly isolated within the target workspace. Returns top-k chunks.
@@ -320,16 +351,27 @@ class CatalogSQLEngine:
     def __init__(self):
         self.conn = duckdb.connect(database=':memory:')
         self.catalogs: Dict[str, bool] = {}
-        self._load_demo_table()
+        self._load_retail_table()
+
+    def _normalize_workspace_id(self, workspace_id: str) -> str:
+        ws = (workspace_id or "").strip().lower()
+        if ws in ("demo", "retail", "retail_ops", "ecommerce"):
+            return "retail_ops"
+        elif ws in ("clinic", "clinic_ops", "healthcare"):
+            return "clinic_ops"
+        elif ws in ("hr", "hr_ops", "internal"):
+            return "hr_ops"
+        return ws or "retail_ops"
 
     def _safe_table_name(self, workspace_id: str) -> str:
-        safe = re.sub(r'[^a-zA-Z0-9_]', '_', workspace_id)
+        norm = self._normalize_workspace_id(workspace_id)
+        safe = re.sub(r'[^a-zA-Z0-9_]', '_', norm)
         return f"products_{safe}"
 
-    def _load_demo_table(self):
+    def _load_retail_table(self):
         if os.path.exists(PRODUCTS_CSV_PATH):
             try:
-                table_name = self._safe_table_name("demo")
+                table_name = self._safe_table_name("retail_ops")
                 self.conn.execute(f"""
                     CREATE OR REPLACE TABLE {table_name} AS 
                     SELECT 
@@ -342,21 +384,25 @@ class CatalogSQLEngine:
                         "product description" AS description
                     FROM read_csv_auto('{PRODUCTS_CSV_PATH.replace(os.sep, '/')}')
                 """)
-                # Alias for backward compatibility
+                # Aliases for backward compatibility
                 self.conn.execute(f"CREATE OR REPLACE VIEW products AS SELECT * FROM {table_name}")
+                self.conn.execute(f"CREATE OR REPLACE VIEW products_demo AS SELECT * FROM {table_name}")
+                self.catalogs["retail_ops"] = True
                 self.catalogs["demo"] = True
-                logger.info("Successfully loaded amazon_products.csv into DuckDB demo catalog table '%s'", table_name)
+                logger.info("Successfully loaded amazon_products.csv into DuckDB retail catalog table '%s'", table_name)
             except Exception as e:
                 logger.error("Error loading products CSV into DuckDB: %s", e)
 
     def has_catalog(self, workspace_id: str) -> bool:
         """Checks if a workspace has an active registered product catalog."""
-        return self.catalogs.get(workspace_id, False)
+        norm = self._normalize_workspace_id(workspace_id)
+        return self.catalogs.get(norm, False)
 
     def load_csv_catalog(self, workspace_id: str, csv_path_or_content: str, is_content: bool = False) -> int:
         """Loads and registers an uploaded CSV catalog for a specific custom workspace."""
         try:
-            table_name = self._safe_table_name(workspace_id)
+            norm_id = self._normalize_workspace_id(workspace_id)
+            table_name = self._safe_table_name(norm_id)
             if is_content:
                 import io
                 df = pd.read_csv(io.StringIO(csv_path_or_content))
@@ -396,8 +442,8 @@ class CatalogSQLEngine:
             clean_df = df[["name", "category", "price", "discount", "rating"]].copy()
             self.conn.register(f"temp_df_{table_name}", clean_df)
             self.conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM temp_df_{table_name}")
-            self.catalogs[workspace_id] = True
-            logger.info("Successfully registered custom catalog for workspace '%s' with %d products", workspace_id, len(clean_df))
+            self.catalogs[norm_id] = True
+            logger.info("Successfully registered custom catalog for workspace '%s' with %d products", norm_id, len(clean_df))
             return len(clean_df)
         except Exception as e:
             logger.error("Failed to load custom catalog for workspace %s: %s", workspace_id, e)
@@ -405,21 +451,23 @@ class CatalogSQLEngine:
 
     def clear_catalog(self, workspace_id: str):
         """Drops custom catalog table for a workspace."""
-        if workspace_id != "demo":
-            table_name = self._safe_table_name(workspace_id)
+        norm_id = self._normalize_workspace_id(workspace_id)
+        if norm_id not in ("retail_ops", "demo"):
+            table_name = self._safe_table_name(norm_id)
             try:
                 self.conn.execute(f"DROP TABLE IF EXISTS {table_name}")
             except Exception:
                 pass
-            self.catalogs[workspace_id] = False
-            logger.info("Cleared custom catalog for workspace '%s'", workspace_id)
+            self.catalogs[norm_id] = False
+            logger.info("Cleared custom catalog for workspace '%s'", norm_id)
 
-    def filter_products(self, query: str, workspace_id: str = "demo", limit: int = 5) -> List[Dict[str, Any]]:
+    def filter_products(self, query: str, workspace_id: str = "retail_ops", limit: int = 5) -> List[Dict[str, Any]]:
         """Parses numerical and categorical constraints and executes SQL via DuckDB on the workspace catalog."""
-        if not self.has_catalog(workspace_id):
+        norm_id = self._normalize_workspace_id(workspace_id)
+        if not self.has_catalog(norm_id):
             return []
 
-        table_name = self._safe_table_name(workspace_id)
+        table_name = self._safe_table_name(norm_id)
         q_lower = query.lower()
         where_clauses = []
         order_by = "rating DESC, price ASC"
@@ -520,7 +568,7 @@ except Exception as _ce_err:
 def router_node(state: AgentState) -> Dict[str, Any]:
     """Node 1: Classifies intent and rewrites ambiguous follow-up queries using session memory."""
     t0 = time.time()
-    workspace_id = state.get("workspace_id", "demo")
+    workspace_id = state.get("workspace_id", "retail_ops")
     query = state.get("query", "").strip()
     session_id = state.get("session_id", "default")
     history = state.get("history") or get_session_history(session_id, limit=6, workspace_id=workspace_id)
@@ -566,10 +614,10 @@ def router_node(state: AgentState) -> Dict[str, Any]:
     if has_escalate:
         intent = "ESCALATE_ACTION"
         reason = "User explicitly requested human assistance, filed a severe dispute, or demanded escalation."
-    elif workspace_id != "demo" and not has_cat:
-        # Non-demo workspace without uploaded catalog routes straight to semantic FAQ RAG
+    elif not has_cat:
+        # Non-catalog workspaces route straight to semantic FAQ RAG
         intent = "POLICY_FAQ"
-        reason = "Non-demo workspace without uploaded catalog routed straight to semantic FAQ RAG."
+        reason = f"Workspace '{workspace_id}' without catalog table routed straight to semantic knowledge RAG."
     elif has_catalog and has_policy:
         intent = "HYBRID_COMPARISON"
         reason = "Query bridges numerical product catalog criteria with customer policy/warranty questions."
@@ -611,11 +659,11 @@ def router_node(state: AgentState) -> Dict[str, Any]:
 def catalog_sql_node(state: AgentState) -> Dict[str, Any]:
     """Node 2: Executes exact filtering and numerical sorting on catalog using DuckDB."""
     t0 = time.time()
-    workspace_id = state.get("workspace_id", "demo")
+    workspace_id = state.get("workspace_id", "retail_ops")
     query = state.get("query", "")
     
     has_cat = catalog_engine.has_catalog(workspace_id) if catalog_engine else False
-    if workspace_id != "demo" and not has_cat:
+    if not has_cat:
         products = []
     else:
         try:
@@ -645,7 +693,7 @@ def catalog_sql_node(state: AgentState) -> Dict[str, Any]:
 def semantic_rag_node(state: AgentState) -> Dict[str, Any]:
     """Node 3: Retrieves relevant chunks from knowledge base using semantic embeddings."""
     t0 = time.time()
-    workspace_id = state.get("workspace_id", "demo")
+    workspace_id = state.get("workspace_id", "retail_ops")
     query = state.get("query", "")
     
     try:
@@ -731,7 +779,7 @@ def grader_node(state: AgentState) -> Dict[str, Any]:
 
     # Synthesize answer if accepted
     answer = state.get("answer", "")
-    workspace_id = state.get("workspace_id", "demo")
+    workspace_id = state.get("workspace_id", "retail_ops")
     if confidence >= 0.65 and intent != "ESCALATE_ACTION":
         answer = _generate_grounded_answer(query, intent, products, sources, workspace_id=workspace_id)
 
@@ -788,7 +836,7 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
         n8n_status = "skipped_no_webhook"
         logger.info("N8N_WEBHOOK_URL not configured. Ticket %s marked as skipped_no_webhook", ticket_id)
 
-    workspace_id = state.get("workspace_id", "demo")
+    workspace_id = state.get("workspace_id", "retail_ops")
     # Persist ticket to SQLite
     save_ticket(
         ticket_id=ticket_id,
@@ -810,7 +858,7 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
 
     answer = (
         f"Your request has been escalated to our human support team. "
-        f"Support Ticket **#{ticket_id}** has been created. A Tier 2 customer service specialist "
+        f"Support Ticket **#{ticket_id}** has been created. A specialist "
         f"is reviewing your inquiry and will follow up shortly via your registered email or account portal."
     )
 
@@ -840,7 +888,7 @@ def _generate_grounded_answer(
     intent: str,
     products: List[Dict[str, Any]],
     sources: List[Dict[str, Any]],
-    workspace_id: str = "demo"
+    workspace_id: str = "retail_ops"
 ) -> str:
     """Synthesizes a helpful customer support answer grounded in retrieved catalog & policy data."""
     # Attempt LLM generation if API key is provided
@@ -904,27 +952,41 @@ def _generate_grounded_answer(
 
     # 3. Deterministic Grounded Synthesis Fallback
     answer_parts = []
+    norm_ws = (workspace_id or "retail_ops").lower()
     if intent == "CATALOG_FILTER" and products:
         answer_parts.append(f"Here are the top products matching your search for '{query}':\n")
         for i, p in enumerate(products, 1):
             disc_str = f" **({p['discount']})**" if p['discount'] and p['discount'] != 'None' else ""
             answer_parts.append(f"{i}. **{p['name']}** — **${p['price']:.2f}**{disc_str}\n   *Rating*: {p['rating']} / 5.0 | *Category*: {p['category']}")
-        if workspace_id == "demo":
+        if norm_ws in ("retail_ops", "demo"):
             answer_parts.append("\nAll products include a standard 1-year limited warranty and are eligible for our 30-day return policy.")
     elif (intent == "POLICY_FAQ" or not products) and sources:
         top_source = sources[0]
-        prefix = "Based on our official store guidelines" if workspace_id == "demo" else "Based on our knowledge base"
+        if norm_ws in ("retail_ops", "demo"):
+            prefix = "Based on our official store guidelines"
+        elif norm_ws in ("clinic_ops", "clinic"):
+            prefix = "Based on ApexCare Clinical & Healthcare guidelines"
+        elif norm_ws in ("hr_ops", "hr"):
+            prefix = "Based on NexusGlobal Employee Handbook & People Ops policies"
+        else:
+            prefix = f"Based on verified {workspace_id} knowledge base documentation"
+
         answer_parts.append(f"{prefix} ({top_source['title']}):\n")
         answer_parts.append(f"{top_source['snippet']}\n")
         if len(sources) > 1:
             answer_parts.append(f"Additionally: {sources[1]['snippet']}")
+
+        if norm_ws in ("clinic_ops", "clinic"):
+            answer_parts.append("\n*Note: For urgent medical emergencies, please dial emergency services immediately (911/999) or visit the nearest emergency department.*")
+        elif norm_ws in ("hr_ops", "hr"):
+            answer_parts.append("\n*Note: For confidential HR consultations or payroll inquiries, you can also submit a private ticket via the People Portal.*")
     elif intent == "HYBRID_COMPARISON":
         if products:
             p = products[0]
             answer_parts.append(f"Regarding the **{p['name']}** (${p['price']:.2f}, rated {p['rating']}/5.0):\n")
         if sources:
             answer_parts.append(f"{sources[0]['snippet']}\n")
-        if workspace_id == "demo":
+        if norm_ws in ("retail_ops", "demo"):
             answer_parts.append("You are covered under our 30-day return window and 1-year limited warranty.")
     else:
         if sources:
@@ -932,7 +994,7 @@ def _generate_grounded_answer(
         elif products:
             answer_parts.append(f"Found {len(products)} relevant products in our catalog.")
         else:
-            answer_parts.append("Thank you for contacting customer support. We are here to assist with any catalog or policy inquiries.")
+            answer_parts.append("Thank you for contacting customer support. We are here to assist with any inquiries.")
 
     return "\n".join(answer_parts)
 
@@ -961,12 +1023,12 @@ def create_agentic_workflow():
         # Routing from router_node
         def router_decision(state: AgentState) -> str:
             intent = state.get("intent", "POLICY_FAQ")
-            workspace_id = state.get("workspace_id", "demo")
+            workspace_id = state.get("workspace_id", "retail_ops")
             has_cat = catalog_engine.has_catalog(workspace_id) if catalog_engine else False
 
             if intent == "ESCALATE_ACTION":
                 return "escalation_node"
-            if workspace_id != "demo" and not has_cat:
+            if not has_cat:
                 return "semantic_rag_node"
             elif intent == "CATALOG_FILTER":
                 return "catalog_sql_node"
@@ -1009,7 +1071,7 @@ def create_agentic_workflow():
             intent = state.get("intent", "")
             confidence = state.get("confidence_score", 0.0)
             retry_count = state.get("retry_count", 0)
-            workspace_id = state.get("workspace_id", "demo")
+            workspace_id = state.get("workspace_id", "retail_ops")
             has_cat = catalog_engine.has_catalog(workspace_id) if catalog_engine else False
 
             if intent == "ESCALATE_ACTION":
@@ -1018,7 +1080,7 @@ def create_agentic_workflow():
             if confidence < 0.65:
                 if retry_count < 1:
                     # Loop back to retrieve once with rewritten query!
-                    if intent == "CATALOG_FILTER" and (workspace_id == "demo" or has_cat):
+                    if intent == "CATALOG_FILTER" and has_cat:
                         return "catalog_sql_node"
                     return "semantic_rag_node"
                 else:
@@ -1060,7 +1122,7 @@ _compiled_graph = create_agentic_workflow()
 def run_agentic_pipeline(
     query: str,
     session_id: str = "default_session",
-    workspace_id: str = "demo"
+    workspace_id: str = "retail_ops"
 ) -> Dict[str, Any]:
     """
     Executes the 5-node cyclic workflow for a query, session_id, and workspace_id.
@@ -1114,7 +1176,7 @@ def run_agentic_pipeline(
             # Cyclic loop execution (max 2 attempts: initial + 1 retry)
             max_attempts = 2
             has_cat = catalog_engine.has_catalog(workspace_id) if catalog_engine else False
-            run_catalog = (workspace_id == "demo" or has_cat)
+            run_catalog = has_cat
 
             for attempt in range(max_attempts):
                 if intent == "CATALOG_FILTER":
@@ -1221,7 +1283,7 @@ def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 100) -> Li
 
 
 async def ingest_knowledge_source(
-    workspace_id: str = "demo",
+    workspace_id: str = "retail_ops",
     url: Optional[str] = None,
     file_bytes: Optional[bytes] = None,
     filename: Optional[str] = None,

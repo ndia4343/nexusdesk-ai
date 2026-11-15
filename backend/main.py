@@ -96,7 +96,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     query: str = Field(..., description="Customer message or support query")
     session_id: str = Field(default="default_session", description="Unique conversation session identifier")
-    workspace_id: str = Field(default="demo", description="Workspace tenant identifier for data isolation")
+    workspace_id: str = Field(default="retail_ops", description="Workspace tenant identifier for data isolation")
 
 
 class ExecutionTraceItem(BaseModel):
@@ -181,7 +181,7 @@ async def handle_chat(payload: ChatRequest):
 
     try:
         session_id = payload.session_id.strip() if payload.session_id else "default_session"
-        workspace_id = payload.workspace_id.strip() if payload.workspace_id else "demo"
+        workspace_id = payload.workspace_id.strip() if payload.workspace_id else "retail_ops"
         result = run_agentic_pipeline(
             query=payload.query.strip(),
             session_id=session_id,
@@ -209,7 +209,7 @@ async def ingest_knowledge(request: Request):
         )
 
     content_type = request.headers.get("content-type", "")
-    target_workspace = "demo"
+    target_workspace = "retail_ops"
     target_url = None
     target_faq_text = None
     file_bytes = None
@@ -220,12 +220,12 @@ async def ingest_knowledge(request: Request):
             body = await request.json()
         except Exception:
             body = {}
-        target_workspace = body.get("workspace_id", "demo")
+        target_workspace = body.get("workspace_id", "retail_ops")
         target_url = body.get("url")
         target_faq_text = body.get("faq_text")
     else:
         form = await request.form()
-        target_workspace = form.get("workspace_id", "demo")
+        target_workspace = form.get("workspace_id", "retail_ops")
         target_url = form.get("url")
         target_faq_text = form.get("faq_text")
         uploaded_file = form.get("file")
@@ -234,7 +234,7 @@ async def ingest_knowledge(request: Request):
             file_bytes = await uploaded_file.read()
 
     res = await ingest_knowledge_source(
-        workspace_id=str(target_workspace).strip() or "demo",
+        workspace_id=str(target_workspace).strip() or "retail_ops",
         url=target_url,
         file_bytes=file_bytes,
         filename=filename,
@@ -244,39 +244,72 @@ async def ingest_knowledge(request: Request):
 
 
 @app.get("/api/knowledge", tags=["Knowledge"])
-async def get_knowledge(workspace_id: str = "demo"):
+async def get_knowledge(workspace_id: str = "retail_ops"):
     """
     Returns the list of ingested sources, chunk counts, and status for the specified workspace.
     """
-    sources = list_knowledge_sources(workspace_id=workspace_id) if list_knowledge_sources else []
-    chunks = vector_store.get_chunks(workspace_id) if vector_store else []
-    has_cat = catalog_engine.has_catalog(workspace_id) if catalog_engine else False
+    norm_ws = (workspace_id or "retail_ops").strip().lower()
+    if norm_ws in ("demo", "retail", "retail_ops", "ecommerce"):
+        norm_ws = "retail_ops"
+    elif norm_ws in ("clinic", "clinic_ops", "healthcare"):
+        norm_ws = "clinic_ops"
+    elif norm_ws in ("hr", "hr_ops", "internal"):
+        norm_ws = "hr_ops"
 
-    # Virtual demo sources if none yet recorded in SQLite
-    if workspace_id == "demo" and not sources:
-        sources = [
-            {
-                "id": 0,
-                "workspace_id": "demo",
-                "source_name": "policies.md",
-                "source_type": "policy",
-                "chunk_count": len([c for c in chunks if c.get("type") == "policy"]),
-                "status": "indexed",
-                "created_at": "system_boot"
-            },
-            {
-                "id": 0,
-                "workspace_id": "demo",
-                "source_name": "amazon_products.csv",
-                "source_type": "catalog",
-                "chunk_count": len([c for c in chunks if c.get("type") in ("review", "description")]),
-                "status": "indexed",
-                "created_at": "system_boot"
-            }
-        ]
+    sources = list_knowledge_sources(workspace_id=norm_ws) if list_knowledge_sources else []
+    chunks = vector_store.get_chunks(norm_ws) if vector_store else []
+    has_cat = catalog_engine.has_catalog(norm_ws) if catalog_engine else False
+
+    # Seed default system sources in response if not yet recorded in SQLite
+    if not sources:
+        if norm_ws == "retail_ops":
+            sources = [
+                {
+                    "id": 1,
+                    "workspace_id": "retail_ops",
+                    "source_name": "policies.md",
+                    "source_type": "policy",
+                    "chunk_count": len([c for c in chunks if c.get("type") == "policy"]),
+                    "status": "indexed",
+                    "created_at": "system_boot"
+                },
+                {
+                    "id": 2,
+                    "workspace_id": "retail_ops",
+                    "source_name": "amazon_products.csv",
+                    "source_type": "catalog",
+                    "chunk_count": len([c for c in chunks if c.get("type") in ("review", "description")]),
+                    "status": "indexed",
+                    "created_at": "system_boot"
+                }
+            ]
+        elif norm_ws == "clinic_ops":
+            sources = [
+                {
+                    "id": 3,
+                    "workspace_id": "clinic_ops",
+                    "source_name": "clinic_policies.md",
+                    "source_type": "clinical_faq",
+                    "chunk_count": len(chunks),
+                    "status": "indexed",
+                    "created_at": "system_boot"
+                }
+            ]
+        elif norm_ws == "hr_ops":
+            sources = [
+                {
+                    "id": 4,
+                    "workspace_id": "hr_ops",
+                    "source_name": "hr_policies.md",
+                    "source_type": "hr_policy",
+                    "chunk_count": len(chunks),
+                    "status": "indexed",
+                    "created_at": "system_boot"
+                }
+            ]
 
     return {
-        "workspace_id": workspace_id,
+        "workspace_id": norm_ws,
         "sources": sources,
         "total_chunks": len(chunks),
         "has_catalog": has_cat
@@ -284,21 +317,29 @@ async def get_knowledge(workspace_id: str = "demo"):
 
 
 @app.delete("/api/knowledge", tags=["Knowledge"])
-async def delete_knowledge(workspace_id: str = "demo"):
+async def delete_knowledge(workspace_id: str = "retail_ops"):
     """
     Clears and resets a custom client workspace knowledge base.
     """
+    norm_ws = (workspace_id or "retail_ops").strip().lower()
+    if norm_ws in ("demo", "retail", "retail_ops", "ecommerce"):
+        norm_ws = "retail_ops"
+    elif norm_ws in ("clinic", "clinic_ops", "healthcare"):
+        norm_ws = "clinic_ops"
+    elif norm_ws in ("hr", "hr_ops", "internal"):
+        norm_ws = "hr_ops"
+
     if vector_store:
-        vector_store.clear_workspace(workspace_id)
+        vector_store.clear_workspace(norm_ws)
     if catalog_engine:
-        catalog_engine.clear_catalog(workspace_id)
-    deleted_records = delete_knowledge_sources(workspace_id) if delete_knowledge_sources else 0
+        catalog_engine.clear_catalog(norm_ws)
+    deleted_records = delete_knowledge_sources(norm_ws) if delete_knowledge_sources else 0
 
     return {
         "status": "ok",
-        "workspace_id": workspace_id,
+        "workspace_id": norm_ws,
         "deleted_records": deleted_records,
-        "message": f"Knowledge base for workspace '{workspace_id}' cleared successfully."
+        "message": f"Knowledge base for workspace '{norm_ws}' cleared successfully."
     }
 
 

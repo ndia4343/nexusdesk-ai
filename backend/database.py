@@ -12,7 +12,10 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger("nexusdesk.database")
 
 DB_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DB_PATH = os.path.join(DB_DIR, "nexusdesk.db")
+if os.getenv("VERCEL"):
+    DEFAULT_DB_PATH = "/tmp/nexusdesk.db"
+else:
+    DEFAULT_DB_PATH = os.path.join(DB_DIR, "nexusdesk.db")
 DATABASE_PATH = os.getenv("DATABASE_PATH", DEFAULT_DB_PATH)
 
 

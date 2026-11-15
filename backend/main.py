@@ -19,22 +19,35 @@ if os.path.exists(env_path):
     load_dotenv(dotenv_path=env_path)
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 # Graceful import wrapper for database and rag pipeline to ensure FastAPI boots cleanly
 STARTUP_ERROR: Optional[str] = None
 try:
-    from backend.database import init_db, list_tickets, get_session_history
-    from backend.rag_pipeline import run_agentic_pipeline
+    from backend.database import (
+        init_db, list_tickets, get_session_history,
+        record_knowledge_source, list_knowledge_sources, delete_knowledge_sources
+    )
+    from backend.rag_pipeline import (
+        run_agentic_pipeline, vector_store, catalog_engine,
+        chunk_text, ingest_knowledge_source
+    )
 except Exception as e:
     import traceback
     STARTUP_ERROR = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
     init_db = None
     list_tickets = None
     get_session_history = None
+    record_knowledge_source = None
+    list_knowledge_sources = None
+    delete_knowledge_sources = None
     run_agentic_pipeline = None
+    vector_store = None
+    catalog_engine = None
+    chunk_text = None
+    ingest_knowledge_source = None
 
 # Configure logging
 logging.basicConfig(
@@ -83,6 +96,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     query: str = Field(..., description="Customer message or support query")
     session_id: str = Field(default="default_session", description="Unique conversation session identifier")
+    workspace_id: str = Field(default="demo", description="Workspace tenant identifier for data isolation")
 
 
 class ExecutionTraceItem(BaseModel):
@@ -150,7 +164,7 @@ async def health_check():
 async def handle_chat(payload: ChatRequest):
     """
     Main Agentic RAG chat endpoint.
-    Accepts query & session_id, runs cyclic 5-node LangGraph pipeline,
+    Accepts query & session_id & workspace_id, runs cyclic 5-node LangGraph pipeline,
     and returns answer, execution trace, products, sources, confidence, and escalation state.
     """
     if not payload.query or not payload.query.strip():
@@ -167,9 +181,11 @@ async def handle_chat(payload: ChatRequest):
 
     try:
         session_id = payload.session_id.strip() if payload.session_id else "default_session"
+        workspace_id = payload.workspace_id.strip() if payload.workspace_id else "demo"
         result = run_agentic_pipeline(
             query=payload.query.strip(),
-            session_id=session_id
+            session_id=session_id,
+            workspace_id=workspace_id
         )
         return result
     except Exception as e:
@@ -180,8 +196,114 @@ async def handle_chat(payload: ChatRequest):
         )
 
 
+@app.post("/api/ingest", tags=["Knowledge"])
+async def ingest_knowledge(request: Request):
+    """
+    Ingests knowledge documents, FAQs, web pages, or product catalogs into a workspace.
+    Accepts JSON or multipart/form-data with workspace_id, optional url, optional file, or raw faq_text.
+    """
+    if STARTUP_ERROR or ingest_knowledge_source is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Ingestion service unavailable: {STARTUP_ERROR}"
+        )
+
+    content_type = request.headers.get("content-type", "")
+    target_workspace = "demo"
+    target_url = None
+    target_faq_text = None
+    file_bytes = None
+    filename = None
+
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        target_workspace = body.get("workspace_id", "demo")
+        target_url = body.get("url")
+        target_faq_text = body.get("faq_text")
+    else:
+        form = await request.form()
+        target_workspace = form.get("workspace_id", "demo")
+        target_url = form.get("url")
+        target_faq_text = form.get("faq_text")
+        uploaded_file = form.get("file")
+        if uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
+            filename = uploaded_file.filename
+            file_bytes = await uploaded_file.read()
+
+    res = await ingest_knowledge_source(
+        workspace_id=str(target_workspace).strip() or "demo",
+        url=target_url,
+        file_bytes=file_bytes,
+        filename=filename,
+        faq_text=target_faq_text
+    )
+    return res
+
+
+@app.get("/api/knowledge", tags=["Knowledge"])
+async def get_knowledge(workspace_id: str = "demo"):
+    """
+    Returns the list of ingested sources, chunk counts, and status for the specified workspace.
+    """
+    sources = list_knowledge_sources(workspace_id=workspace_id) if list_knowledge_sources else []
+    chunks = vector_store.get_chunks(workspace_id) if vector_store else []
+    has_cat = catalog_engine.has_catalog(workspace_id) if catalog_engine else False
+
+    # Virtual demo sources if none yet recorded in SQLite
+    if workspace_id == "demo" and not sources:
+        sources = [
+            {
+                "id": 0,
+                "workspace_id": "demo",
+                "source_name": "policies.md",
+                "source_type": "policy",
+                "chunk_count": len([c for c in chunks if c.get("type") == "policy"]),
+                "status": "indexed",
+                "created_at": "system_boot"
+            },
+            {
+                "id": 0,
+                "workspace_id": "demo",
+                "source_name": "amazon_products.csv",
+                "source_type": "catalog",
+                "chunk_count": len([c for c in chunks if c.get("type") in ("review", "description")]),
+                "status": "indexed",
+                "created_at": "system_boot"
+            }
+        ]
+
+    return {
+        "workspace_id": workspace_id,
+        "sources": sources,
+        "total_chunks": len(chunks),
+        "has_catalog": has_cat
+    }
+
+
+@app.delete("/api/knowledge", tags=["Knowledge"])
+async def delete_knowledge(workspace_id: str = "demo"):
+    """
+    Clears and resets a custom client workspace knowledge base.
+    """
+    if vector_store:
+        vector_store.clear_workspace(workspace_id)
+    if catalog_engine:
+        catalog_engine.clear_catalog(workspace_id)
+    deleted_records = delete_knowledge_sources(workspace_id) if delete_knowledge_sources else 0
+
+    return {
+        "status": "ok",
+        "workspace_id": workspace_id,
+        "deleted_records": deleted_records,
+        "message": f"Knowledge base for workspace '{workspace_id}' cleared successfully."
+    }
+
+
 @app.get("/api/tickets", tags=["Support & Audit"])
-async def get_tickets(limit: int = 25):
+async def get_tickets(limit: int = 25, workspace_id: Optional[str] = None):
     """List recent support tickets escalated to Tier 2 / n8n."""
     if list_tickets is None:
         return {
@@ -189,7 +311,7 @@ async def get_tickets(limit: int = 25):
             "tickets": [],
             "startup_error": STARTUP_ERROR
         }
-    tickets = list_tickets(limit=limit)
+    tickets = list_tickets(limit=limit, workspace_id=workspace_id)
     return {
         "count": len(tickets),
         "tickets": tickets
@@ -197,7 +319,7 @@ async def get_tickets(limit: int = 25):
 
 
 @app.get("/api/history/{session_id}", tags=["Memory"])
-async def get_history(session_id: str):
+async def get_history(session_id: str, workspace_id: Optional[str] = None):
     """Retrieve stored conversational turns for a session."""
     if get_session_history is None:
         return {
@@ -205,7 +327,7 @@ async def get_history(session_id: str):
             "turns": [],
             "startup_error": STARTUP_ERROR
         }
-    history = get_session_history(session_id=session_id, limit=20)
+    history = get_session_history(session_id=session_id, limit=20, workspace_id=workspace_id)
     return {
         "session_id": session_id,
         "turns": history

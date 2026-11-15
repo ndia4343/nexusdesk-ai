@@ -1,166 +1,160 @@
----
-title: Nexusdesk Ai
-emoji: ⚡
-colorFrom: blue
-colorTo: green
-sdk: gradio
-app_file: app.py
-pinned: false
----
+# NexusDesk AI
 
-# NexusDesk AI — Agentic RAG Customer Support Engine
+Multi-tenant customer support and product catalog assistant built with Next.js, FastAPI, LangGraph, FAISS, DuckDB, and n8n.
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![LangGraph](https://img.shields.io/badge/LangGraph-Cyclic_Workflow-blue?logo=python&logoColor=white)](https://github.com/langchain-ai/langgraph)
-[![DuckDB](https://img.shields.io/badge/DuckDB-In--Memory_SQL-FFF000?logo=duckdb&logoColor=black)](https://duckdb.org)
-[![Hugging Face Spaces](https://img.shields.io/badge/Hugging_Face-Spaces_Compatible-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/spaces)
-
-NexusDesk AI is a stateful, agentic customer support engine designed for e-commerce platforms. Built on FastAPI, LangGraph, DuckDB, FAISS, and SQLite, it classifies customer intent, performs exact numerical and categorical filtering over catalog data, retrieves policy and review context via semantic vector search, autonomously grades context relevance with query-rewriting retry loops, and escalates unresolved or sensitive issues to Tier 2 support via n8n webhooks.
+- **Live Application:** [https://nexusdesk-ai-flf7.vercel.app/](https://nexusdesk-ai-flf7.vercel.app/)
+- **API Service:** [https://nexusdesk-ai.vercel.app/](https://nexusdesk-ai.vercel.app/)
 
 ---
 
-## 🏗️ System Architecture
+## Architecture
 
-NexusDesk AI replaces rigid linear search with a **cyclic 5-node LangGraph workflow**:
+The system executes a cyclic agentic workflow across specialized data stores. User inquiries are routed to either structured catalog queries, unstructured semantic document retrieval, or automated escalation pipelines based on confidence grading.
 
-```
-                       ┌───────────────────────┐
-                       │     Customer Query    │
-                       └───────────┬───────────┘
-                                   │
-                                   ▼
-                       ┌───────────────────────┐
-                       │      router_node      │
-                       │   Intent & Rewrite    │
-                       └─────┬─────┬─────┬─────┘
-                             │     │     │
-            ┌────────────────┘     │     └────────────────┐
-            ▼                      ▼                      ▼
-  [CATALOG_FILTER]         [HYBRID_COMPARE]          [POLICY_FAQ]
-┌───────────────────────┐          │          ┌───────────────────────┐
-│   catalog_sql_node    │◄─────────┘          │   semantic_rag_node   │
-│ DuckDB SQL Filtering  │                     │ FAISS + SentenceTrans │
-└───────────┬───────────┘                     └───────────┬───────────┘
-            │                                             │
-            └──────────────────────┬──────────────────────┘
-                                   │
-                                   ▼
-                       ┌───────────────────────┐
-                ┌─────►│      grader_node      │
-                │      │ Confidence & Rewrite  │
-                │      └───────────┬───────────┘
-                │                  │
-   [Confidence < 0.65              │
-    & retry_count < 1]             ├────────────────────────┐
-                │                  ▼                        ▼
-                │        [Confidence >= 0.65]     [Confidence < 0.65 after retry
-                │        ┌──────────────────┐      OR Intent == ESCALATE_ACTION]
-                └────────┤ Synthesize Final │               │
-                         │ Customer Answer  │               ▼
-                         └──────────────────┘    ┌──────────────────────┐
-                                                 │   escalation_node    │
-                                                 │ SQLite + n8n Webhook │
-                                                 └──────────────────────┘
+```mermaid
+flowchart TD
+    Client["Next.js Client (Workspace Context)"] --> API["FastAPI (/api/chat, /api/action)"]
+    API --> Router["LangGraph Router (Intent Classification)"]
+    Router -->|CATALOG_FILTER| DuckDB["DuckDB (Structured Catalog SQL)"]
+    Router -->|POLICY_FAQ| FAISS["FAISS / TF-IDF (Unstructured Policy Docs)"]
+    Router -->|HYBRID_COMPARISON| DuckDB
+    Router -->|HYBRID_COMPARISON| FAISS
+    Router -->|ESCALATE_ACTION| Escalation["Escalation Node (HTTP POST 3.0s Timeout)"]
+    DuckDB --> Grader["Confidence Check (Self-Grading)"]
+    FAISS --> Grader
+    Grader -->|Confidence >= 0.65| Answer["Cited Answer + Verified Sources"]
+    Grader -->|Confidence < 0.65| Escalation
+    Escalation -->|Webhook Online| N8N["n8n Webhook (Google Sheets + Gmail)"]
+    Escalation -->|Timeout / Offline Fallback| Offline["Offline #ND-... Ticket (SQLite Audit Log)"]
+    N8N --> Drawer["Artifact Drawer (Live Ticket Status)"]
+    Offline --> Drawer
 ```
 
-### The 5 Agent Nodes:
+### Architectural Principles
 
-1. **`router_node`**:
-   - Classifies customer intent into `CATALOG_FILTER`, `POLICY_FAQ`, `HYBRID_COMPARISON`, or `ESCALATE_ACTION`.
-   - Resolves ambiguous follow-up pronouns ("how much is it?", "can I return it?") by contextualizing the query against session memory.
-2. **`catalog_sql_node`**:
-   - Uses in-memory **DuckDB** to execute structured SQL queries on `amazon_products.csv` for numerical constraints (`price`, `rating`, `discount`, `category`).
-3. **`semantic_rag_node`**:
-   - Performs dense semantic vector search via **FAISS** + `SentenceTransformer("all-MiniLM-L6-v2")` on `policies.md` and customer reviews / specifications.
-4. **`grader_node`**:
-   - Evaluates retrieved context relevance on a scale of `0.0` to `1.0`.
-   - If confidence is `< 0.65` and `retry_count < 1`, it reformulates search terms and cycles back to retrieval.
-   - If confidence remains `< 0.65` or intent is `ESCALATE_ACTION`, it triggers human handoff.
-5. **`escalation_node`**:
-   - Generates a unique support ticket (`TICK-XXXXXXXX`) and records it in SQLite (`backend/nexusdesk.db`).
-   - Dispatches an HTTP POST payload to `N8N_WEBHOOK_URL` with a non-blocking 3.0s timeout and graceful fallback.
+- **Workspace Isolation:** Every vector chunk, DuckDB SQL catalog table, session turn, and escalation ticket is partitioned by `workspace_id` (`retail_ops`, `clinic_ops`, `hr_ops`, or custom client IDs). Custom workspaces without a catalog bypass SQL execution and query policy vector partitions directly.
+- **Retrieval & Synthesis Fallback:** When external LLM provider keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`) are not configured or hit upstream quotas, a deterministic synthesis engine extracts matching source sentences, trims them at strict sentence boundaries (`.`, `!`, `?`), and formats a concise 2–3 bullet answer without mid-word truncation or unrelated section dumping.
+- **Offline Ticket Resilience:** All HTTP POST requests to `N8N_WEBHOOK_URL` enforce a strict 3.0-second timeout. If the webhook tunnel is offline or unreachable, the system catches the error cleanly, marks the ticket `#ND-XXXXXX` as `queued_offline`, records the full payload to SQLite, and returns a successful response so the client interface never blocks.
 
 ---
 
-## 📡 API Contract
+## What It Does
 
-### `POST /api/chat` (also aliased as `POST /api/search`)
+### 1. Isolated Workspaces
+- **E-Commerce & Retail (`retail_ops`):** Seeded with a 30-day return policy, 1-year limited hardware warranty rules, and an Amazon consumer electronics catalog.
+- **Clinic & Patient Support (`clinic_ops`):** Seeded with outpatient consultation rates, specialist fees, health insurance copays (BCBS, Aetna, Cigna, UnitedHealthcare), 24-hour cancellation policies, and surgical aftercare protocols.
+- **HR & Employee Operations (`hr_ops`):** Seeded with annual PTO accrual schedules, flexible hybrid work hours, domestic meal per diem rules ($75/day), $25 itemized receipt thresholds, and 36-month IT hardware refresh cycles.
+- **Custom Ingestion Engine:** Accepts public website URLs (HTML parser with script/navbar stripping, 5MB payload limit, and private IP/SSRF protection), document uploads (`.pdf`, `.csv`, `.md`, `.txt`), or raw text to create isolated tenant workspaces dynamically.
 
-#### Request Body
-```json
-{
-  "query": "Show me noise cancelling headphones under $300 with rating above 4.5",
-  "session_id": "cust_sess_9021"
-}
-```
+### 2. Grounded Answers & Citations
+- Classifies user intent across four operational paths: `CATALOG_FILTER`, `POLICY_FAQ`, `HYBRID_COMPARISON`, and `ESCALATE_ACTION`.
+- Executes SQL queries in DuckDB for numerical constraints (price thresholds, discounts, star ratings) to eliminate hallucinations on structured data.
+- Executes vector similarity searches over unstructured policy guidelines.
+- Attaches clickable citation chips with semantic relevance scores and structured product specification cards to assistant responses.
 
-#### Response Body
-```json
-{
-  "answer": "Here are the top products matching your search for 'Show me noise cancelling headphones under $300 with rating above 4.5'...",
-  "execution_trace": [
-    {"step": "router_node", "tool": "intent_classifier_and_rewriter", "status": "completed", "latency_ms": 12},
-    {"step": "catalog_sql_node", "tool": "duckdb_sql_filter", "status": "completed", "latency_ms": 8},
-    {"step": "grader_node", "tool": "context_relevance_grader", "status": "high_confidence_0.9accepted", "latency_ms": 1}
-  ],
-  "products": [
-    {
-      "name": "Bose QuietComfort 45 Bluetooth Wireless Headphones",
-      "category": "Audio",
-      "price": 279.0,
-      "discount": "15% off",
-      "rating": 4.6
-    }
-  ],
-  "sources": [
-    {
-      "title": "Store Policy: 1. 30-Day Standard Return Policy",
-      "snippet": "Customers can initiate a return within thirty (30) calendar days from the verified delivery date...",
-      "relevance": 0.88
-    }
-  ],
-  "confidence_score": 0.90,
-  "escalation": {
-    "triggered": false,
-    "ticket_id": null,
-    "n8n_status": "none"
-  }
-}
-```
+### 3. Human Handoff Pipeline
+- Re-evaluates retrieval confidence on a 0.0 to 1.0 scale. If confidence falls below 0.65, triggers an automatic query reformulation loop before escalating.
+- Generates structured, searchable ticket identifiers (`#ND-` followed by 6 alphanumeric characters).
+- Includes an interactive inline Action Card below operational answers (expense claims, appointment bookings, return exceptions) that allows users to trigger workflows directly.
+- Dispatches structured payloads to n8n workflows (`Webhook -> Google Sheets -> Gmail`) with offline fallback support.
+
+### 4. Product Interface
+- Dual theme support: Dark Mode (`#0F172A` canvas, `#131C2E` surface, `#1B263B` cards, `#38BDF8` sky-cyan accents) and Light Mode (`#F8FAFC` canvas, `#FFFFFF` cards, `#CBD5E1` borders, slate-900 typography).
+- Workspace switcher with category pills and live verified source counters.
+- Collapsible sidebar displaying session history labeled by the first 36 characters of the user's initial inquiry.
+- Workspace authentication modal with Google account chooser profiles (`Workspace Owner`, `Support Lead`) and direct work email input.
+- Slide-over Artifact drawer displaying verified citation text, catalog specs, and live ticket audit logs.
+- Dedicated B2B compliance pages: `/privacy` (EU GDPR Articles 15–22, zero model training), `/terms` (commercial SLA, IP ownership), Pricing modal, and Cookie preferences modal.
 
 ---
 
-## 🚀 Running Locally
+## Repository Structure & Local Setup
 
+### Directory Tree
+
+```text
+nexusdesk-ai/
+├── backend/
+│   ├── database.py         # SQLite persistence for tickets, session history, and sources
+│   ├── main.py             # FastAPI REST endpoints, Pydantic schemas, and CORS handling
+│   ├── nexusdesk.db        # SQLite database file
+│   └── rag_pipeline.py     # LangGraph workflow, FAISS/TF-IDF store, and DuckDB engine
+├── data/
+│   ├── amazon_products.csv # Retail catalog dataset for SQL queries
+│   ├── clinic_policies.md  # Healthcare consultation pricing and clinical guidelines
+│   ├── hr_policies.md      # Employee operations handbook and expense rules
+│   └── policies.md         # Store return, warranty, and replacement policies
+├── frontend/
+│   ├── package.json        # Next.js 14 and Tailwind CSS dependencies
+│   ├── tailwind.config.ts  # Palette and theme definitions
+│   └── src/
+│       ├── app/            # App router pages (/, /privacy, /terms, globals.css)
+│       ├── components/     # UI components (Header, Sidebar, ChatCanvas, Composer, ArtifactDrawer)
+│       ├── lib/            # Constants and pre-configured workspace metadata
+│       └── types/          # TypeScript interfaces for API contracts and session states
+├── .env.example            # Environment variable template
+├── index.py                # Serverless entrypoint for Vercel Python runtime
+├── requirements.txt        # Production dependencies (pure-Python, zero heavy binary wheels)
+└── vercel.json             # Vercel deployment build and include configurations
+```
+
+### Local Setup
+
+#### Prerequisites
+- Python 3.11 or 3.12
+- Node.js 18+ and npm
+
+#### 1. Backend Service
 ```bash
-# 1. Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Clone the repository
+git clone https://github.com/ndia4343/nexusdesk-ai.git
+cd nexusdesk-ai
 
-# 2. Install dependencies
+# Create and activate virtual environment
+python -m venv .venv
+
+# Windows:
+.\.venv\Scripts\activate
+
+# macOS / Linux:
+source .venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 
-# 3. Configure environment (optional)
-cp .env.example .env
-
-# 4. Start the server
-uvicorn backend.main:app --host 0.0.0.0 --port 7860 --reload
+# Start FastAPI development server
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 7860 --reload
 ```
+
+The API service boots at `http://localhost:7860` with interactive Swagger docs at `http://localhost:7860/docs`.
+
+#### 2. Frontend Application
+```bash
+# From the project root, navigate to the frontend directory
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start Next.js development server
+npm run dev
+```
+
+The web application runs at `http://localhost:3000`.
 
 ---
 
-## 🚀 Render Deployment (512 MB Free Tier Compatible)
+## Environment Variables
 
-This backend is specifically optimized for Render's free 512 MB RAM tier:
-- Lightweight API embeddings (Google Gemini & Hugging Face Inference) with high-speed NumPy TF-IDF fallback.
-- Sub-60 MB total RAM memory footprint (zero local PyTorch or heavy model weights).
-- Runs directly via native Python 3 with `Procfile` and `render.yaml`.
+Configure these variables in a `.env` file in the root directory. Values shown below are safe development defaults:
 
-### Render Deployment Steps:
-1. Connect this GitHub repository (`https://github.com/ndia4343/nexusdesk-ai.git`) to a new Render **Web Service**.
-2. **Build Command**: `pip install -r requirements.txt`
-3. **Start Command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-4. Set environment variables under **Environment**:
-   - `N8N_WEBHOOK_URL` (optional, for Tier 2 escalation)
-   - `GEMINI_API_KEY` or `GOOGLE_API_KEY` (optional, for Gemini embeddings & LLM synthesis)
-   - `OPENAI_API_KEY` (optional, for OpenAI synthesis)
+| Variable | Description | Safe Default / Example |
+| :--- | :--- | :--- |
+| `PORT` | Local backend server listening port | `7860` |
+| `DATABASE_PATH` | SQLite database file location | `backend/nexusdesk.db` |
+| `N8N_WEBHOOK_URL` | Optional n8n escalation webhook endpoint | `https://your-n8n-instance.com/webhook/nexusdesk-escalation` |
+| `GEMINI_API_KEY` | Optional Google Gemini key for synthesis | `AIzaSy...` |
+| `OPENAI_API_KEY` | Optional OpenAI key for synthesis | `sk-proj-...` |
+| `NEXT_PUBLIC_API_URL` | Frontend client target URL for the backend | `http://localhost:7860` |
+
+If no API keys are provided, the backend automatically operates in deterministic grounded mode using in-memory vector search and DuckDB SQL.

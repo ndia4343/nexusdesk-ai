@@ -11,7 +11,7 @@ import {
   PanelLeftClose,
   Sparkles
 } from "lucide-react";
-import { Workspace } from "@/types";
+import { Workspace, ChatSession } from "@/types";
 
 interface SidebarProps {
   workspaces: Workspace[];
@@ -20,7 +20,7 @@ interface SidebarProps {
   onOpenConnectModal: () => void;
   isOpen: boolean;
   onToggle: () => void;
-  recentSessions: string[];
+  recentSessions: (ChatSession | string)[];
   activeSessionId: string;
   onSelectSession: (sessionId: string) => void;
   onNewSession: () => void;
@@ -201,7 +201,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 No previous sessions
               </div>
             ) : (
-              recentSessions.map((sid) => {
+              recentSessions.map((sess) => {
+                const sid = typeof sess === "string" ? sess : sess.id;
+                const title = typeof sess === "string" ? sess : (sess.title || sess.firstQuery || sess.id);
                 const isActive = sid === activeSessionId;
                 return (
                   <button
@@ -214,7 +216,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   >
                     <MessageSquare className="w-3 h-3 shrink-0" />
-                    <span className="truncate font-mono text-[11px]">{sid}</span>
+                    <span className="truncate text-[11px] font-sans font-medium">{title}</span>
                   </button>
                 );
               })

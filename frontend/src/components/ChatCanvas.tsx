@@ -17,7 +17,8 @@ import {
   Search,
   Send,
   Zap,
-  Tag
+  Tag,
+  ArrowRight
 } from "lucide-react";
 import {
   ChatMessage,
@@ -25,7 +26,8 @@ import {
   DrawerContent,
   SourceItem,
   ProductItem,
-  EscalationInfo
+  EscalationInfo,
+  AgenticAction
 } from "@/types";
 
 interface ChatCanvasProps {
@@ -34,6 +36,7 @@ interface ChatCanvasProps {
   onSendStarterPrompt: (prompt: string) => void;
   onOpenDrawer: (content: DrawerContent) => void;
   isLoading: boolean;
+  onTriggerAction: (messageId: string, action: AgenticAction, queryText: string) => void;
 }
 
 export const ChatCanvas: React.FC<ChatCanvasProps> = ({
@@ -41,7 +44,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   activeWorkspace,
   onSendStarterPrompt,
   onOpenDrawer,
-  isLoading
+  isLoading,
+  onTriggerAction
 }) => {
   // Store expanded state per message id for Claude-style reasoning accordion
   const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
@@ -51,6 +55,87 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       ...prev,
       [messageId]: !prev[messageId]
     }));
+  };
+
+  const getAgenticActionForMessage = (msg: ChatMessage, wsId: string): AgenticAction | null => {
+    if (msg.action) return msg.action;
+    const text = (msg.content || "").toLowerCase();
+
+    // 1. Expense Claim / Reimbursement / Per-Diem
+    if (
+      text.includes("expense") ||
+      text.includes("per diem") ||
+      text.includes("per-diem") ||
+      text.includes("reimburse") ||
+      text.includes("receipt") ||
+      text.includes("stipend") ||
+      text.includes("concur")
+    ) {
+      return {
+        type: "expense_claim",
+        title: "Automated Expense Claim Workflow",
+        subtitle: "Pre-validates itemized receipts and per-diem thresholds before dispatching to accounting.",
+        buttonLabel: "Trigger Workflow / Submit Request"
+      };
+    }
+
+    // 2. Appointment Booking / Clinical Scheduling
+    if (
+      text.includes("appointment") ||
+      text.includes("consultation") ||
+      text.includes("schedule") ||
+      text.includes("doctor") ||
+      text.includes("clinic") ||
+      text.includes("copay") ||
+      text.includes("patient")
+    ) {
+      return {
+        type: "appointment_booking",
+        title: "Clinical Appointment Booking Dispatch",
+        subtitle: "Syncs physician availability and queues biometric intake slot via EHR workflow.",
+        buttonLabel: "Trigger Workflow / Submit Request"
+      };
+    }
+
+    // 3. Return Exception / Warranty RMA
+    if (
+      text.includes("return") ||
+      text.includes("refund") ||
+      text.includes("warranty") ||
+      text.includes("replacement") ||
+      text.includes("rma") ||
+      text.includes("defective") ||
+      text.includes("damaged")
+    ) {
+      return {
+        type: "return_exception",
+        title: "Return Merchandise Authorization (RMA) Dispatch",
+        subtitle: "Generates carrier return label and initiates inventory replacement workflow.",
+        buttonLabel: "Trigger Workflow / Submit Request"
+      };
+    }
+
+    // 4. Low-confidence query or escalation
+    if ((msg.confidenceScore !== undefined && msg.confidenceScore < 0.70) || (msg.escalation && msg.escalation.triggered)) {
+      return {
+        type: "support_escalation",
+        title: "Specialist Support Dispatch",
+        subtitle: "Dispatches conversational transcript and audit log to on-call support team via n8n.",
+        buttonLabel: "Trigger Workflow / Submit Request"
+      };
+    }
+
+    // 5. General People Operations for hr_ops
+    if (wsId === "hr_ops" && (text.includes("leave") || text.includes("pto") || text.includes("holiday") || text.includes("remote") || text.includes("laptop") || text.includes("benefit"))) {
+      return {
+        type: "hr_ops_request",
+        title: "People Operations Ticket Dispatch",
+        subtitle: "Securely logs internal HR inquiry to the confidential employee operations queue.",
+        buttonLabel: "Trigger Workflow / Submit Request"
+      };
+    }
+
+    return null;
   };
 
   return (
@@ -119,6 +204,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         {messages.map((msg) => {
           const isUser = msg.role === "user";
           const isReasoningOpen = !!expandedReasoning[msg.id];
+          const action = !isUser ? getAgenticActionForMessage(msg, activeWorkspace.id) : null;
 
           return (
             <div
@@ -294,6 +380,68 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       >
                         View Audit
                       </button>
+                    </div>
+                  )}
+
+                  {/* Interactive Agentic Action Card */}
+                  {action && (
+                    <div className="p-4 rounded-xl bg-card border border-sky-500/40 dark:border-cyan/40 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-500/5 to-indigo-500/5 transition-all">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-sky-500/10 dark:bg-cyan/10 border border-sky-500/30 dark:border-cyan/30 flex items-center justify-center shrink-0 mt-0.5 text-sky-600 dark:text-cyan">
+                          <Zap className="w-4 h-4 fill-current" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                            <span>{action.title}</span>
+                            {action.dispatched && (
+                              <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-subtle text-emerald border border-emerald/30 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                {action.ticketId || "Dispatched"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-medium">
+                            {action.dispatched
+                              ? "Operational request recorded in audit database & dispatched via webhook."
+                              : action.subtitle}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 w-full sm:w-auto">
+                        {action.dispatched ? (
+                          <button
+                            onClick={() =>
+                              onOpenDrawer({
+                                type: "escalation",
+                                data: {
+                                  escalation: {
+                                    triggered: true,
+                                    ticket_id: action.ticketId || "#ND-ACTION",
+                                    status: "OPEN",
+                                    webhook_status: "dispatched",
+                                    n8n_status: "dispatched"
+                                  },
+                                  query: msg.content,
+                                  timestamp: msg.timestamp
+                                }
+                              })
+                            }
+                            className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-card hover:bg-cardhover border border-cardborder text-xs font-bold text-sky-600 dark:text-cyan hover:text-sky-700 dark:hover:text-cyan/80 transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                          >
+                            <span>View Live Ticket</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onTriggerAction(msg.id, action, msg.content)}
+                            className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-sky-600 dark:bg-cyan hover:bg-sky-700 dark:hover:bg-cyan/90 text-white dark:text-slate-950 text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>{action.buttonLabel}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

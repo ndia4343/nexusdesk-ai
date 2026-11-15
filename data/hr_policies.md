@@ -1,7 +1,7 @@
-# NexusGlobal Enterprise — Employee Operations & HR Policy Manual
+# HR Policy: Employee Handbook & Operations
 
 ## Annual Leave, Paid Time Off (PTO) & Statutory Holidays
-NexusGlobal believes in work-life integration and mandatory rest periods:
+Our company believes in work-life integration and mandatory rest periods:
 - Annual PTO Accrual: Full-time employees accrue 18 days of paid vacation leave per calendar year, accrued semi-monthly on the 1st and 15th (0.75 days per pay period).
 - Company Holidays: 10 statutory paid holidays per year plus 2 floating personal cultural days.
 - Rollover Policy: Employees may carry over a maximum of 5 unused PTO days into the subsequent calendar year; rollover days must be utilized before March 31st or are forfeited.

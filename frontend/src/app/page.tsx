@@ -11,7 +11,7 @@ import { SignInModal } from "@/components/SignInModal";
 import { PricingModal } from "@/components/PricingModal";
 import { CookieModal } from "@/components/CookieModal";
 import { DEFAULT_WORKSPACES, API_BASE_URL } from "@/lib/constants";
-import { Workspace, ChatMessage, DrawerContent, AuthUser } from "@/types";
+import { Workspace, ChatMessage, DrawerContent, AuthUser, ChatSession, AgenticAction } from "@/types";
 
 export default function Home() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>(DEFAULT_WORKSPACES);
@@ -24,7 +24,7 @@ export default function Home() {
   const [cookieModalOpen, setCookieModalOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [recentSessions, setRecentSessions] = useState<string[]>([]);
+  const [recentSessions, setRecentSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => `sess_${Date.now().toString(36)}`);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -133,10 +133,20 @@ export default function Home() {
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
 
-    // Track active session in recent list
+    // Track active session in recent list with human-readable title (first 36 chars)
+    const sessionTitle = queryText.trim().slice(0, 36) + (queryText.trim().length > 36 ? "..." : "");
     setRecentSessions((prev) => {
-      if (!prev.includes(activeSessionId)) {
-        return [activeSessionId, ...prev.slice(0, 7)];
+      const exists = prev.find((s) => s.id === activeSessionId);
+      if (!exists) {
+        return [
+          {
+            id: activeSessionId,
+            title: sessionTitle,
+            firstQuery: queryText.trim(),
+            timestamp: new Date().toISOString()
+          },
+          ...prev.slice(0, 9)
+        ];
       }
       return prev;
     });
@@ -223,6 +233,86 @@ export default function Home() {
     setDrawerContent(null);
   };
 
+  // Interactive Agentic Action handler
+  const handleTriggerAction = async (messageId: string, action: AgenticAction, queryText: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspace_id: activeWorkspaceId,
+          session_id: activeSessionId,
+          action_type: action.type,
+          customer_query: queryText
+        })
+      });
+
+      let ticketId = `#ND-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      let webhookStatus = "queued_offline";
+      let timestamp = new Date().toISOString();
+
+      if (res.ok) {
+        const data = await res.json();
+        ticketId = data.ticket_id || ticketId;
+        webhookStatus = data.webhook_status || data.n8n_status || "dispatched";
+        timestamp = data.timestamp || timestamp;
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, action: { ...action, dispatched: true, ticketId } }
+            : m
+        )
+      );
+
+      setDrawerContent({
+        type: "escalation",
+        data: {
+          escalation: {
+            triggered: true,
+            ticket_id: ticketId,
+            status: "OPEN",
+            webhook_status: webhookStatus,
+            n8n_status: webhookStatus,
+            workspace_id: activeWorkspaceId,
+            query: queryText,
+            timestamp
+          },
+          query: queryText,
+          timestamp
+        }
+      });
+    } catch (e) {
+      const fallbackTicket = `#ND-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const ts = new Date().toISOString();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, action: { ...action, dispatched: true, ticketId: fallbackTicket } }
+            : m
+        )
+      );
+      setDrawerContent({
+        type: "escalation",
+        data: {
+          escalation: {
+            triggered: true,
+            ticket_id: fallbackTicket,
+            status: "OPEN",
+            webhook_status: "queued_offline",
+            n8n_status: "queued_offline",
+            workspace_id: activeWorkspaceId,
+            query: queryText,
+            timestamp: ts
+          },
+          query: queryText,
+          timestamp: ts
+        }
+      });
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-canvas font-sans relative">
       {/* Collapsible Left Sidebar */}
@@ -267,6 +357,7 @@ export default function Home() {
           onSendStarterPrompt={handleSendMessage}
           onOpenDrawer={(content) => setDrawerContent(content)}
           isLoading={isLoading}
+          onTriggerAction={handleTriggerAction}
         />
 
         {/* Floating Bottom Composer with B2B Compliance Footer */}

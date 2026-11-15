@@ -33,7 +33,21 @@ export interface SourceItem {
 export interface EscalationInfo {
   triggered: boolean;
   ticket_id: string | null;
+  status?: string;
+  webhook_status?: string;
   n8n_status: string;
+  workspace_id?: string;
+  query?: string;
+  timestamp?: string;
+}
+
+export interface AgenticAction {
+  type: string;
+  title: string;
+  subtitle: string;
+  buttonLabel: string;
+  ticketId?: string;
+  dispatched?: boolean;
 }
 
 export interface ChatMessage {
@@ -47,6 +61,14 @@ export interface ChatMessage {
   confidenceScore?: number;
   escalation?: EscalationInfo;
   workspaceId?: string;
+  action?: AgenticAction;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  firstQuery?: string;
+  timestamp: string;
 }
 
 export interface AuthUser {

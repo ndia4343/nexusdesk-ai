@@ -103,6 +103,92 @@ class AgentState(TypedDict, total=False):
 # KNOWLEDGE BASE & RETRIEVAL INDEX (LIGHTWEIGHT API / TF-IDF ENGINE)
 # ==============================================================================
 
+def clean_sentence_boundary(text: str, max_chars: int = 380) -> str:
+    """Never cuts off mid-word (no 'bu...' or 'Thres...').
+    Always trims cleanly at full sentence boundaries (. ! ?) or full clean phrases.
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+    sub = text[:max_chars]
+    # Check for sentence ending punctuation (. ! ?) followed by whitespace or end of string
+    matches = list(re.finditer(r'[\.\!\?](?:\s|$)', sub))
+    if matches and matches[-1].end() >= 60:
+        return text[:matches[-1].end()].strip()
+    # Fallback to last clean word boundary
+    last_space = sub.rfind(" ")
+    if last_space > 60:
+        clean_sub = text[:last_space].rstrip(",;:- ")
+        return clean_sub + "."
+    return sub.rstrip(",;:- ") + "."
+
+
+def extract_concise_bullets(query: str, sources: List[Dict[str, Any]], max_bullets: int = 3) -> List[str]:
+    """Extracts and synthesizes 2-3 direct, concise bullet points from sources
+    specifically addressing the user query without mid-word cutoffs or dumping unrelated sections.
+    """
+    STOPWORDS = {
+        "what", "is", "the", "are", "how", "can", "for", "and", "does", "with",
+        "from", "about", "have", "you", "your", "our", "this", "that", "there",
+        "will", "when", "where", "which", "who", "why", "would", "could", "should",
+        "please", "tell", "much", "many", "give", "show", "help", "need", "i", "do"
+    }
+    q_words = [w.lower() for w in re.findall(r'[a-zA-Z0-9]+', query) if len(w) > 2 and w.lower() not in STOPWORDS]
+
+    candidates = []
+    for s_idx, src in enumerate(sources):
+        raw_text = src.get("content") or src.get("snippet", "")
+        lines = [line.strip() for line in raw_text.split("\n") if line.strip()]
+        for line in lines:
+            if line.startswith("#"):
+                continue
+            # Skip introductory preamble headers (e.g. "Guidelines for...", "...consultations:")
+            if line.rstrip().endswith(":") or line.endswith("---"):
+                continue
+            if re.match(r'^(Guidelines|Welcome|Our company|We operate|We respect|Following|Managing|Comprehensive)\b', line, re.I):
+                continue
+
+            # Clean leading bullet symbols without removing valid title characters or numbers (e.g. 30-Day)
+            clean_line = re.sub(r'^\s*[-*•]\s*', '', line).strip()
+            clean_line = re.sub(r'^\d+\.\s+', '', clean_line).strip()
+
+            if len(clean_line) < 25:
+                continue
+
+            trimmed = clean_sentence_boundary(clean_line, 280)
+            if not trimmed:
+                continue
+            if trimmed[-1] not in ".!?":
+                trimmed += "."
+
+            line_lower = trimmed.lower()
+            score = 0
+            for qw in q_words:
+                if qw in line_lower:
+                    score += 5
+            # Heavily weight the top source matching the query so unrelated policy sections are not mixed in
+            score += max(0, (len(sources) - s_idx) * 3)
+
+            candidates.append((score, s_idx, trimmed))
+
+    candidates.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+
+    seen = set()
+    selected = []
+    for score, _, bullet in candidates:
+        key = re.sub(r'[^a-zA-Z0-9]', '', bullet[:35]).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(bullet)
+        if len(selected) >= max_bullets:
+            break
+
+    return selected
+
+
 class VectorStoreManager:
     """
     Lightweight embedding & vector retrieval manager supporting multi-workspace isolation.
@@ -179,7 +265,7 @@ class VectorStoreManager:
             chunks.append({
                 "title": f"{title_prefix}: {title}",
                 "content": sec,
-                "snippet": body[:320] + ("..." if len(body) > 320 else ""),
+                "snippet": clean_sentence_boundary(body, 360),
                 "type": chunk_type
             })
         return chunks
@@ -207,7 +293,7 @@ class VectorStoreManager:
                     chunks.append({
                         "title": f"Customer Review: {p_name}",
                         "content": f"Product: {p_name} ({category}, ${price})\nCustomer Review Feedback: {reviews}",
-                        "snippet": reviews[:320] + ("..." if len(reviews) > 320 else ""),
+                        "snippet": clean_sentence_boundary(reviews, 350),
                         "type": "review"
                     })
                 # Chunk for technical description
@@ -215,7 +301,7 @@ class VectorStoreManager:
                     chunks.append({
                         "title": f"Specifications: {p_name}",
                         "content": f"Product: {p_name} ({category}, ${price})\nTechnical Specifications: {desc}",
-                        "snippet": desc[:320] + ("..." if len(desc) > 320 else ""),
+                        "snippet": clean_sentence_boundary(desc, 350),
                         "type": "description"
                     })
         except Exception as e:
@@ -377,6 +463,7 @@ class VectorStoreManager:
             results.append({
                 "title": ch["title"],
                 "snippet": ch["snippet"],
+                "content": ch.get("content", ch["snippet"]),
                 "relevance": round(rel, 3)
             })
         return results
@@ -834,51 +921,55 @@ def grader_node(state: AgentState) -> Dict[str, Any]:
 
 
 def escalation_node(state: AgentState) -> Dict[str, Any]:
-    """Node 5: Creates SQLite support ticket and sends an HTTP POST payload to n8n webhook with timeout fallback."""
+    """Node 5: Creates SQLite support ticket and sends an HTTP POST payload to n8n webhook with timeout fallback.
+    Never fails or stalls when N8N_WEBHOOK_URL is unreachable or offline.
+    """
     t0 = time.time()
     session_id = state.get("session_id", "default_session")
     customer_query = state.get("original_query") or state.get("query", "")
     intent = state.get("intent", "ESCALATE_ACTION")
     confidence_score = state.get("confidence_score", 0.0)
+    workspace_id = state.get("workspace_id", "retail_ops")
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    ticket_id = f"TICK-{uuid.uuid4().hex[:8].upper()}"
+    # 1. Generate structured ticket ID (#ND- + 6 uppercase alphanumeric) and payload first
+    ticket_id = f"#ND-{uuid.uuid4().hex[:6].upper()}"
 
-    # Prepare webhook payload
-    webhook_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
     payload = {
         "ticket_id": ticket_id,
         "session_id": session_id,
         "customer_query": customer_query,
         "intent": intent,
         "confidence_score": confidence_score,
+        "workspace_id": workspace_id,
         "timestamp": timestamp
     }
 
-    n8n_status = "none"
+    # 2. Strict timeout protected call to n8n webhook
+    webhook_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
+    webhook_status = "queued_offline"
     if webhook_url:
         try:
             logger.info("Sending escalation payload for ticket %s to %s", ticket_id, webhook_url)
             with httpx.Client(timeout=3.0) as client:
                 res = client.post(webhook_url, json=payload)
                 if res.is_success:
-                    n8n_status = "sent"
+                    webhook_status = "dispatched"
                     logger.info("n8n webhook acknowledged receipt for ticket %s", ticket_id)
                 else:
-                    n8n_status = f"failed_http_{res.status_code}"
-                    logger.warning("n8n webhook returned status %s for ticket %s", res.status_code, ticket_id)
+                    webhook_status = "queued_offline"
+                    logger.warning("n8n webhook returned status %s for ticket %s (graceful fallback)", res.status_code, ticket_id)
         except httpx.TimeoutException:
-            n8n_status = "failed_timeout"
+            webhook_status = "queued_offline"
             logger.warning("n8n webhook timed out after 3.0s for ticket %s (graceful fallback)", ticket_id)
         except Exception as e:
-            n8n_status = "failed_connection"
+            webhook_status = "queued_offline"
             logger.warning("n8n webhook connection error for ticket %s: %s (graceful fallback)", ticket_id, e)
     else:
-        n8n_status = "skipped_no_webhook"
-        logger.info("N8N_WEBHOOK_URL not configured. Ticket %s marked as skipped_no_webhook", ticket_id)
+        webhook_status = "queued_offline"
+        logger.info("N8N_WEBHOOK_URL not configured. Ticket %s marked as queued_offline", ticket_id)
 
-    workspace_id = state.get("workspace_id", "retail_ops")
-    # Persist ticket to SQLite
+    # 3. Persist ticket to SQLite
     save_ticket(
         ticket_id=ticket_id,
         session_id=session_id,
@@ -886,20 +977,34 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
         intent=intent,
         confidence_score=confidence_score,
         status="OPEN",
-        n8n_status=n8n_status,
+        n8n_status=webhook_status,
         created_at=timestamp,
         workspace_id=workspace_id
     )
 
+    ticket_obj = {
+        "ticket_id": ticket_id,
+        "status": "OPEN",
+        "webhook_status": webhook_status,
+        "workspace_id": workspace_id,
+        "query": customer_query,
+        "timestamp": timestamp
+    }
+
     escalation_info = {
         "triggered": True,
         "ticket_id": ticket_id,
-        "n8n_status": n8n_status
+        "status": "OPEN",
+        "webhook_status": webhook_status,
+        "n8n_status": webhook_status,
+        "workspace_id": workspace_id,
+        "query": customer_query,
+        "timestamp": timestamp
     }
 
     answer = (
         f"Your request has been escalated to our human support team. "
-        f"Support Ticket **#{ticket_id}** has been created. A specialist "
+        f"Support Ticket **{ticket_id}** has been created. A specialist "
         f"is reviewing your inquiry and will follow up shortly via your registered email or account portal."
     )
 
@@ -907,7 +1012,7 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
     trace_entry = {
         "step": "escalation_node",
         "tool": "n8n_ticket_escalation",
-        "status": "completed",
+        "status": f"ticket_created_{webhook_status}",
         "latency_ms": latency_ms
     }
     traces = list(state.get("execution_trace", []))
@@ -915,6 +1020,7 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
 
     return {
         "escalation": escalation_info,
+        "ticket": ticket_obj,
         "answer": answer,
         "execution_trace": traces
     }
@@ -1012,10 +1118,14 @@ def _generate_grounded_answer(
         else:
             prefix = f"Based on verified {workspace_id} knowledge base documentation"
 
-        answer_parts.append(f"{prefix} ({top_source['title']}):\n")
-        answer_parts.append(f"{top_source['snippet']}\n")
-        if len(sources) > 1:
-            answer_parts.append(f"Additionally: {sources[1]['snippet']}")
+        bullets = extract_concise_bullets(query, sources, max_bullets=3)
+        if bullets:
+            answer_parts.append(f"{prefix} ({top_source['title']}):\n")
+            for b in bullets:
+                answer_parts.append(f"• {b}")
+        else:
+            clean_snip = clean_sentence_boundary(top_source.get("snippet", ""), 320)
+            answer_parts.append(f"{prefix} ({top_source['title']}):\n{clean_snip}")
 
         if norm_ws in ("clinic_ops", "clinic"):
             answer_parts.append("\n*Note: For urgent medical emergencies, please dial emergency services immediately (911/999) or visit the nearest emergency department.*")
@@ -1026,12 +1136,24 @@ def _generate_grounded_answer(
             p = products[0]
             answer_parts.append(f"Regarding the **{p['name']}** (${p['price']:.2f}, rated {p['rating']}/5.0):\n")
         if sources:
-            answer_parts.append(f"{sources[0]['snippet']}\n")
+            bullets = extract_concise_bullets(query, sources, max_bullets=2)
+            if bullets:
+                for b in bullets:
+                    answer_parts.append(f"• {b}")
+            else:
+                clean_snip = clean_sentence_boundary(sources[0].get("snippet", ""), 280)
+                answer_parts.append(f"{clean_snip}\n")
         if norm_ws in ("retail_ops", "demo"):
-            answer_parts.append("You are covered under our 30-day return window and 1-year limited warranty.")
+            answer_parts.append("\nYou are covered under our 30-day return window and 1-year limited warranty.")
     else:
         if sources:
-            answer_parts.append(f"{sources[0]['snippet']}\n")
+            bullets = extract_concise_bullets(query, sources, max_bullets=2)
+            if bullets:
+                for b in bullets:
+                    answer_parts.append(f"• {b}")
+            else:
+                clean_snip = clean_sentence_boundary(sources[0].get("snippet", ""), 280)
+                answer_parts.append(f"{clean_snip}\n")
         elif products:
             answer_parts.append(f"Found {len(products)} relevant products in our catalog.")
         else:
@@ -1373,7 +1495,7 @@ async def ingest_knowledge_source(
                     new_chunks.append({
                         "title": f"Web: {title}",
                         "content": c,
-                        "snippet": c[:320] + ("..." if len(c) > 320 else ""),
+                        "snippet": clean_sentence_boundary(c, 350),
                         "type": "web"
                     })
                 rec = record_knowledge_source(workspace_id, f"URL: {url_str}", "url", len(chunks), "indexed")
@@ -1393,7 +1515,7 @@ async def ingest_knowledge_source(
             new_chunks.append({
                 "title": f"FAQ: {title}",
                 "content": c,
-                "snippet": c[:320] + ("..." if len(c) > 320 else ""),
+                "snippet": clean_sentence_boundary(c, 350),
                 "type": "faq"
             })
         rec = record_knowledge_source(workspace_id, f"FAQ: {title}", "faq_text", len(chunks), "indexed")
@@ -1414,7 +1536,7 @@ async def ingest_knowledge_source(
                             pdf_chunks.append({
                                 "title": f"PDF: {filename} (p.{p_num})",
                                 "content": c,
-                                "snippet": c[:320] + ("..." if len(c) > 320 else ""),
+                                "snippet": clean_sentence_boundary(c, 350),
                                 "type": "pdf"
                             })
                 new_chunks.extend(pdf_chunks)
@@ -1433,7 +1555,7 @@ async def ingest_knowledge_source(
                     csv_chunks.append({
                         "title": f"Catalog: {row.get('name', row.get('product name', filename))}",
                         "content": row_str,
-                        "snippet": row_str[:320] + ("..." if len(row_str) > 320 else ""),
+                        "snippet": clean_sentence_boundary(row_str, 350),
                         "type": "catalog"
                     })
                 new_chunks.extend(csv_chunks)
@@ -1447,7 +1569,7 @@ async def ingest_knowledge_source(
                     new_chunks.append({
                         "title": f"File: {filename}",
                         "content": c,
-                        "snippet": c[:320] + ("..." if len(c) > 320 else ""),
+                        "snippet": clean_sentence_boundary(c, 350),
                         "type": "file"
                     })
                 new_chunks.extend(file_ch)

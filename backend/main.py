@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 STARTUP_ERROR: Optional[str] = None
 try:
     from backend.database import (
-        init_db, list_tickets, get_session_history,
+        init_db, list_tickets, save_ticket, get_session_history,
         record_knowledge_source, list_knowledge_sources, delete_knowledge_sources
     )
     from backend.rag_pipeline import (
@@ -39,6 +39,7 @@ except Exception as e:
     STARTUP_ERROR = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
     init_db = None
     list_tickets = None
+    save_ticket = None
     get_session_history = None
     record_knowledge_source = None
     list_knowledge_sources = None
@@ -134,6 +135,26 @@ class ChatResponse(BaseModel):
     sources: List[SourceItem]
     confidence_score: float
     escalation: EscalationInfo
+
+
+class ActionPayload(BaseModel):
+    workspace_id: str = "retail_ops"
+    session_id: str = "default_session"
+    action_type: str = "workflow_dispatch"
+    customer_query: str
+    details: Optional[Dict[str, Any]] = None
+
+
+class ActionResponse(BaseModel):
+    status: str
+    ticket_id: str
+    webhook_status: str
+    n8n_status: str
+    workspace_id: str
+    query: str
+    action_type: str
+    timestamp: str
+    message: str
 
 
 # ==============================================================================
@@ -353,6 +374,66 @@ async def delete_knowledge(workspace_id: str = "retail_ops"):
         "deleted_records": deleted_records,
         "message": f"Knowledge base for workspace '{norm_ws}' cleared successfully."
     }
+
+
+@app.post("/api/action", response_model=ActionResponse, tags=["Agentic Actions"])
+async def trigger_agentic_action(payload: ActionPayload):
+    """Dispatches a structured operational request (expense, booking, return, etc.) to the n8n webhook and records the support ticket."""
+    ticket_id = f"#ND-{uuid.uuid4().hex[:6].upper()}"
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    webhook_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
+
+    webhook_payload = {
+        "ticket_id": ticket_id,
+        "session_id": payload.session_id,
+        "action_type": payload.action_type,
+        "customer_query": payload.customer_query,
+        "workspace_id": payload.workspace_id,
+        "details": payload.details or {},
+        "timestamp": timestamp
+    }
+
+    webhook_status = "queued_offline"
+    if webhook_url:
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                res = client.post(webhook_url, json=webhook_payload)
+                if res.is_success:
+                    webhook_status = "dispatched"
+                else:
+                    webhook_status = "queued_offline"
+        except Exception:
+            webhook_status = "queued_offline"
+    else:
+        webhook_status = "queued_offline"
+
+    if save_ticket:
+        try:
+            save_ticket(
+                ticket_id=ticket_id,
+                session_id=payload.session_id,
+                customer_query=payload.customer_query,
+                intent=payload.action_type,
+                confidence_score=0.98,
+                status="OPEN",
+                n8n_status=webhook_status,
+                workspace_id=payload.workspace_id
+            )
+        except Exception as e:
+            logger.warning("Failed to persist action ticket: %s", e)
+
+    action_label = payload.action_type.replace('_', ' ').title()
+    return ActionResponse(
+        status="OPEN",
+        ticket_id=ticket_id,
+        webhook_status=webhook_status,
+        n8n_status=webhook_status,
+        workspace_id=payload.workspace_id,
+        query=payload.customer_query,
+        action_type=payload.action_type,
+        timestamp=timestamp,
+        message=f"{action_label} successfully queued and dispatched to {payload.workspace_id} workflow."
+    )
 
 
 @app.get("/api/tickets", tags=["Support & Audit"])

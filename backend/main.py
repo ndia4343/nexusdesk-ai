@@ -127,8 +127,12 @@ class ChatResponse(BaseModel):
 
 @app.get("/", tags=["Health"])
 async def root():
-    """Root health check returning status and service name."""
-    return {"status": "ok", "service": "NexusDesk AI"}
+    """Root health check returning status, service name, and documentation link."""
+    return {
+        "status": "ok",
+        "service": "NexusDesk AI",
+        "docs": "/docs"
+    }
 
 
 @app.get("/api/health", tags=["Health"])

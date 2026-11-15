@@ -932,6 +932,10 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
     workspace_id = state.get("workspace_id", "retail_ops")
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
+    # Extract customer email if provided in customer_query
+    email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', customer_query or "")
+    customer_email = email_match.group(0) if email_match else "Not Provided"
+
     # 1. Generate structured ticket ID (#ND- + 6 uppercase alphanumeric) and payload first
     ticket_id = f"#ND-{uuid.uuid4().hex[:6].upper()}"
 
@@ -939,6 +943,7 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
         "ticket_id": ticket_id,
         "session_id": session_id,
         "customer_query": customer_query,
+        "customer_email": customer_email,
         "intent": intent,
         "confidence_score": confidence_score,
         "workspace_id": workspace_id,

@@ -383,11 +383,15 @@ async def trigger_agentic_action(payload: ActionPayload):
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     webhook_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
 
+    email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', payload.customer_query or "")
+    customer_email = email_match.group(0) if email_match else "Not Provided"
+
     webhook_payload = {
         "ticket_id": ticket_id,
         "session_id": payload.session_id,
         "action_type": payload.action_type,
         "customer_query": payload.customer_query,
+        "customer_email": customer_email,
         "workspace_id": payload.workspace_id,
         "details": payload.details or {},
         "timestamp": timestamp

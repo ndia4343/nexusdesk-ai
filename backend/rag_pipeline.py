@@ -1060,27 +1060,73 @@ def _generate_grounded_answer(
 
     # 1. Try Google Gemini if configured
     if gemini_key:
+        prompt = (
+            f"You are NexusDesk AI, an expert customer support assistant for workspace '{workspace_id}'.\n"
+            f"Answer the customer inquiry accurately and professionally based ONLY on the provided context.\n\n"
+            f"Context:\n{context_str}\n\n"
+            f"Customer Query: {query}\n\n"
+            f"Answer:"
+        )
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                res = client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 350}
+                    }
+                )
+                if res.is_success:
+                    candidates = res.json().get("candidates", [])
+                    if candidates:
+                        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                        if text and text.strip():
+                            return text.strip()
+        except Exception as e:
+            logger.warning("Gemini REST synthesis failed: %s. Trying SDK fallback if available.", e)
+
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            prompt = (
-                f"You are NexusDesk AI, an expert customer support assistant for workspace '{workspace_id}'.\n"
-                f"Answer the customer inquiry accurately and professionally based ONLY on the provided context.\n\n"
-                f"Context:\n{context_str}\n\n"
-                f"Customer Query: {query}\n\n"
-                f"Answer:"
-            )
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt
             )
             if response and response.text:
                 return response.text.strip()
-        except Exception as e:
-            logger.warning("Gemini synthesis failed: %s. Falling back.", e)
+        except Exception:
+            pass
 
     # 2. Try OpenAI if configured
     if openai_key:
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                res = client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {openai_key}"
+                    },
+                    json={
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {"role": "system", "content": f"You are NexusDesk AI, an expert customer support assistant for workspace '{workspace_id}'. Answer accurately based on the provided context."},
+                            {"role": "user", "content": f"Context:\n{context_str}\n\nQuery: {query}"}
+                        ],
+                        "max_tokens": 300,
+                        "temperature": 0.2
+                    }
+                )
+                if res.is_success:
+                    choices = res.json().get("choices", [])
+                    if choices:
+                        content = choices[0].get("message", {}).get("content", "")
+                        if content and content.strip():
+                            return content.strip()
+        except Exception as e:
+            logger.warning("OpenAI REST synthesis failed: %s. Trying SDK fallback if available.", e)
+
         try:
             from openai import OpenAI
             client = OpenAI(api_key=openai_key)
@@ -1094,8 +1140,8 @@ def _generate_grounded_answer(
             )
             if response.choices:
                 return response.choices[0].message.content.strip()
-        except Exception as e:
-            logger.warning("OpenAI synthesis failed: %s. Falling back.", e)
+        except Exception:
+            pass
 
     # 3. Deterministic Grounded Synthesis Fallback
     answer_parts = []

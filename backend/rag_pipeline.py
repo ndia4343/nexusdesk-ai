@@ -965,9 +965,9 @@ def _generate_grounded_answer(
         if norm_ws in ("retail_ops", "demo"):
             prefix = "Based on our official store guidelines"
         elif norm_ws in ("clinic_ops", "clinic"):
-            prefix = "Based on ApexCare Clinical & Healthcare guidelines"
+            prefix = "Based on Clinic & Patient Support guidelines"
         elif norm_ws in ("hr_ops", "hr"):
-            prefix = "Based on NexusGlobal Employee Handbook & People Ops policies"
+            prefix = "Based on HR & Employee Operations policies"
         else:
             prefix = f"Based on verified {workspace_id} knowledge base documentation"
 

@@ -10,9 +10,9 @@ export const DEFAULT_WORKSPACES: Workspace[] = [
   {
     id: "retail_ops",
     name: "E-Commerce & Retail",
-    industry: "Retail Ops",
+    industry: "E-Commerce & Retail",
     icon: "ShoppingBag",
-    description: "Product catalog search, price & discount constraints, reviews, and 30-day return policy.",
+    description: "Product catalog search, pricing & discount rules, and 30-day return policy",
     seedPrompts: [
       "Find wireless noise-cancelling headphones under $100",
       "Can I return an item after 30 days if the box is open?",
@@ -23,10 +23,10 @@ export const DEFAULT_WORKSPACES: Workspace[] = [
   },
   {
     id: "clinic_ops",
-    name: "ApexCare Health Desk",
-    industry: "Clinic & Healthcare",
+    name: "Clinic & Patient Support",
+    industry: "Clinic & Patient Support",
     icon: "Stethoscope",
-    description: "Consultation pricing, insurance copays, appointment cancellations, and post-op care.",
+    description: "Treatment FAQs, consultation fees, insurance coverage, and post-care instructions",
     seedPrompts: [
       "What should I do for post-operative care after a tooth extraction?",
       "What is the consultation fee for dental exams and do you accept insurance?",
@@ -37,10 +37,10 @@ export const DEFAULT_WORKSPACES: Workspace[] = [
   },
   {
     id: "hr_ops",
-    name: "NexusGlobal People Ops",
-    industry: "HR & Internal Desk",
+    name: "HR & Employee Operations",
+    industry: "HR & Employee Operations",
     icon: "Users",
-    description: "Annual leave accrual, remote work equipment reimbursement, parental leave, and code of conduct.",
+    description: "Annual leave accrual, remote work equipment reimbursement, parental leave, and policies",
     seedPrompts: [
       "How many days of annual leave do I get and does unused leave roll over?",
       "How do I submit an expense claim for my remote home office setup?",

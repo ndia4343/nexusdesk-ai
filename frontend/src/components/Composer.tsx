@@ -49,14 +49,14 @@ export const Composer: React.FC<ComposerProps> = ({
       <div className="max-w-3xl mx-auto w-full pointer-events-auto">
         <form
           onSubmit={handleSubmit}
-          className="relative bg-card rounded-2xl border border-borderline focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/20 transition-all shadow-2xl flex flex-col p-2.5"
+          className="relative bg-card rounded-2xl border border-cardborder focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/20 transition-all shadow-highlight shadow-2xl flex flex-col p-2.5"
         >
           <div className="flex items-end gap-2">
             {/* Inline Attachment / Connect Button */}
             <button
               type="button"
               onClick={onOpenConnectModal}
-              className="p-2 text-slate-400 hover:text-cyan hover:bg-borderline/60 rounded-xl transition-colors mb-0.5 shrink-0"
+              className="p-2 text-slate-300 hover:text-cyan hover:bg-cardhover rounded-xl transition-colors mb-0.5 shrink-0"
               title="Add company URL or document"
             >
               <Plus className="w-5 h-5" />
@@ -71,14 +71,14 @@ export const Composer: React.FC<ComposerProps> = ({
               onKeyDown={handleKeyDown}
               placeholder={`Ask ${workspaceName}... (e.g. policies, catalog search, specs)`}
               disabled={isLoading}
-              className="flex-1 bg-transparent border-0 resize-none text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-0 py-2.5 max-h-44 leading-relaxed font-sans"
+              className="flex-1 bg-transparent border-0 resize-none text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-0 py-2.5 max-h-44 leading-relaxed font-sans font-normal"
             />
 
             {/* Fast Send Button */}
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
-              className="w-9 h-9 rounded-xl bg-cyan hover:bg-cyan/90 text-slate-950 flex items-center justify-center shrink-0 mb-0.5 transition-all disabled:opacity-30 disabled:hover:bg-cyan shadow-md shadow-cyan/20"
+              className="w-9 h-9 rounded-xl bg-cyan hover:bg-cyan/90 text-slate-950 flex items-center justify-center shrink-0 mb-0.5 transition-all disabled:opacity-30 disabled:hover:bg-cyan shadow-md shadow-cyan/20 font-bold"
               title="Send message"
             >
               {isLoading ? (
@@ -90,7 +90,7 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         </form>
 
-        <div className="mt-2 text-center text-[11px] text-slate-500 tracking-wide">
+        <div className="mt-2 text-center text-[11px] text-slate-400 tracking-wide font-medium">
           NexusDesk AI synthesizes verified catalog & policy data. Multi-workspace isolation active.
         </div>
       </div>

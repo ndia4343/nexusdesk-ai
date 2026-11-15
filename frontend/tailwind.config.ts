@@ -9,10 +9,12 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        canvas: "#090E1A",
-        surface: "#0D1322",
-        card: "#111827",
-        borderline: "#1E293B",
+        canvas: "#0F172A",
+        surface: "#131C2E",
+        card: "#1B263B",
+        cardhover: "#22304A",
+        borderline: "#26334D",
+        cardborder: "#334155",
         cyan: {
           DEFAULT: "#38BDF8",
           glow: "rgba(56, 189, 248, 0.15)",
@@ -29,6 +31,10 @@ const config: Config = {
           DEFAULT: "#FBBF24",
           subtle: "rgba(251, 191, 36, 0.12)",
         },
+      },
+      boxShadow: {
+        highlight: "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+        glow: "0 0 20px rgba(56, 189, 248, 0.15)",
       },
       fontFamily: {
         sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],

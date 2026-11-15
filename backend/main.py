@@ -4,6 +4,9 @@ Exposes the Agentic RAG endpoints for customer support, catalog search, and huma
 """
 
 import os
+os.environ["HOME"] = "/tmp"
+os.environ["TMPDIR"] = "/tmp"
+
 import logging
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
@@ -34,8 +37,11 @@ logger = logging.getLogger("nexusdesk.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for database initialization on startup."""
-    logger.info("Initializing NexusDesk AI database and services...")
-    init_db()
+    try:
+        logger.info("Initializing NexusDesk AI database and services...")
+        init_db()
+    except Exception as e:
+        logger.warning("Database initialization non-fatal warning: %s", e)
     yield
     logger.info("NexusDesk AI server shutting down...")
 

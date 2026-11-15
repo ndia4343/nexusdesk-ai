@@ -9,12 +9,16 @@ Implements a 5-node cyclic LangGraph workflow:
 """
 
 import os
+os.environ["HOME"] = "/tmp"
+os.environ["TMPDIR"] = "/tmp"
+
 import re
 import time
 import uuid
 import math
 import logging
 import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional, TypedDict
 
 import httpx
@@ -25,9 +29,11 @@ from backend.database import save_ticket, save_message, get_session_history
 
 logger = logging.getLogger("nexusdesk.rag_pipeline")
 
-DATASET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset")
-PRODUCTS_CSV_PATH = os.path.join(DATASET_DIR, "amazon_products.csv")
-POLICIES_MD_PATH = os.path.join(DATASET_DIR, "policies.md")
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+if not DATA_DIR.exists():
+    DATA_DIR = Path(__file__).resolve().parent / "dataset"
+PRODUCTS_CSV_PATH = str(DATA_DIR / "amazon_products.csv")
+POLICIES_MD_PATH = str(DATA_DIR / "policies.md")
 
 # ==============================================================================
 # STATE DEFINITION
@@ -376,9 +382,18 @@ class CatalogSQLEngine:
             return []
 
 
-# Singletons for vector store & DuckDB catalog
-vector_store = VectorStoreManager.get_instance()
-catalog_engine = CatalogSQLEngine()
+# Singletons for vector store & DuckDB catalog (safely wrapped for serverless import)
+try:
+    vector_store = VectorStoreManager.get_instance()
+except Exception as _vs_err:
+    logger.warning("VectorStoreManager initialization deferred or failed: %s", _vs_err)
+    vector_store = None
+
+try:
+    catalog_engine = CatalogSQLEngine()
+except Exception as _ce_err:
+    logger.warning("CatalogSQLEngine initialization deferred or failed: %s", _ce_err)
+    catalog_engine = None
 
 
 # ==============================================================================
@@ -474,7 +489,11 @@ def catalog_sql_node(state: AgentState) -> Dict[str, Any]:
     t0 = time.time()
     query = state.get("query", "")
     
-    products = catalog_engine.filter_products(query, limit=5)
+    try:
+        products = catalog_engine.filter_products(query, limit=5) if catalog_engine else []
+    except Exception as e:
+        logger.warning("Catalog filtering non-fatal error: %s", e)
+        products = []
     latency_ms = int((time.time() - t0) * 1000)
 
     trace_entry = {
@@ -495,11 +514,15 @@ def catalog_sql_node(state: AgentState) -> Dict[str, Any]:
 
 
 def semantic_rag_node(state: AgentState) -> Dict[str, Any]:
-    """Node 3: Retrieves relevant chunks from policies.md and product reviews using FAISS & SentenceTransformer."""
+    """Node 3: Retrieves relevant chunks from policies.md and product reviews using semantic embeddings."""
     t0 = time.time()
     query = state.get("query", "")
     
-    top_chunks = vector_store.search(query, top_k=4)
+    try:
+        top_chunks = vector_store.search(query, top_k=4) if vector_store else []
+    except Exception as e:
+        logger.warning("Semantic RAG search non-fatal error: %s", e)
+        top_chunks = []
     latency_ms = int((time.time() - t0) * 1000)
 
     trace_entry = {

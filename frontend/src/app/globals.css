@@ -14,11 +14,11 @@ html.dark {
 }
 
 html.light {
-  --canvas: #FAF9F6;
-  --surface: #FFFFFF;
+  --canvas: #F8FAFC;
+  --surface: #F1F5F9;
   --card: #FFFFFF;
-  --cardhover: #F1F5F9;
-  --borderline: #E2E8F0;
+  --cardhover: #F8FAFC;
+  --borderline: #CBD5E1;
   --cardborder: #CBD5E1;
   --foreground: #0F172A;
 }

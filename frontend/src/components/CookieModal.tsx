@@ -40,13 +40,13 @@ export const CookieModal: React.FC<CookieModalProps> = ({ isOpen, onClose }) => 
         <div className="px-6 py-4 border-b border-borderline flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <Cookie className="w-5 h-5 text-amber" />
-            <h2 className="text-base font-bold text-slate-100">
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
               EU GDPR Cookie & Privacy Preferences
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-card rounded-md transition-colors"
+            className="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-card rounded-md transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -54,21 +54,21 @@ export const CookieModal: React.FC<CookieModalProps> = ({ isOpen, onClose }) => 
 
         {/* Body */}
         <div className="p-6 space-y-4 text-xs">
-          <p className="text-slate-300 leading-relaxed font-normal">
+          <p className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
             NexusDesk AI respects your privacy and adheres to the EU General Data Protection Regulation (GDPR) and ePrivacy Directive. We never track cross-site activity or sell personal data.
           </p>
 
           <div className="space-y-3 pt-1">
             {/* Essential Cookies */}
-            <div className="p-3.5 rounded-xl bg-card border border-cardborder flex items-start justify-between gap-3 shadow-highlight">
+            <div className="p-3.5 rounded-xl bg-card border border-cardborder flex items-start justify-between gap-3 shadow-sm">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-100">Strictly Necessary Cookies</span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-subtle text-emerald border border-emerald/30">
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Strictly Necessary Cookies</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-subtle text-emerald border border-emerald/30">
                     Always Active
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1 leading-normal font-normal">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-normal font-medium">
                   Required for multi-workspace routing, authentication tokens, and CSRF protection.
                 </p>
               </div>
@@ -78,13 +78,13 @@ export const CookieModal: React.FC<CookieModalProps> = ({ isOpen, onClose }) => 
             </div>
 
             {/* Conversational Memory */}
-            <div className="p-3.5 rounded-xl bg-card border border-cardborder flex items-start justify-between gap-3 shadow-highlight">
+            <div className="p-3.5 rounded-xl bg-card border border-cardborder flex items-start justify-between gap-3 shadow-sm">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-100">Stateful Session Memory</span>
-                  <span className="text-[10px] font-semibold text-slate-400">Functional</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Stateful Session Memory</span>
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Functional</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1 leading-normal font-normal">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-normal font-medium">
                   Maintains context across follow-up queries within an active customer support session.
                 </p>
               </div>
@@ -92,25 +92,25 @@ export const CookieModal: React.FC<CookieModalProps> = ({ isOpen, onClose }) => 
                 type="button"
                 onClick={() => setMemory(!memory)}
                 className={`w-9 h-5 rounded-full flex items-center p-0.5 transition-colors ${
-                  memory ? "bg-cyan/30" : "bg-borderline"
+                  memory ? "bg-sky-200 dark:bg-cyan/30" : "bg-borderline"
                 }`}
               >
                 <div
                   className={`w-4 h-4 rounded-full transition-transform ${
-                    memory ? "bg-cyan translate-x-4" : "bg-slate-400 translate-x-0"
+                    memory ? "bg-sky-600 dark:bg-cyan translate-x-4" : "bg-slate-400 translate-x-0"
                   }`}
                 />
               </button>
             </div>
 
             {/* Performance & Analytics */}
-            <div className="p-3.5 rounded-xl bg-card border border-cardborder flex items-start justify-between gap-3 shadow-highlight">
+            <div className="p-3.5 rounded-xl bg-card border border-cardborder flex items-start justify-between gap-3 shadow-sm">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-100">Anonymous Aggregated Analytics</span>
-                  <span className="text-[10px] font-semibold text-slate-400">Performance</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">Anonymous Aggregated Analytics</span>
+                  <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">Performance</span>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1 leading-normal font-normal">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-normal font-medium">
                   Measures retrieval latency and LangGraph node execution times to optimize engine performance.
                 </p>
               </div>
@@ -118,12 +118,12 @@ export const CookieModal: React.FC<CookieModalProps> = ({ isOpen, onClose }) => 
                 type="button"
                 onClick={() => setAnalytics(!analytics)}
                 className={`w-9 h-5 rounded-full flex items-center p-0.5 transition-colors ${
-                  analytics ? "bg-cyan/30" : "bg-borderline"
+                  analytics ? "bg-sky-200 dark:bg-cyan/30" : "bg-borderline"
                 }`}
               >
                 <div
                   className={`w-4 h-4 rounded-full transition-transform ${
-                    analytics ? "bg-cyan translate-x-4" : "bg-slate-400 translate-x-0"
+                    analytics ? "bg-sky-600 dark:bg-cyan translate-x-4" : "bg-slate-400 translate-x-0"
                   }`}
                 />
               </button>
@@ -135,14 +135,14 @@ export const CookieModal: React.FC<CookieModalProps> = ({ isOpen, onClose }) => 
             <button
               type="button"
               onClick={handleSave}
-              className="px-4 py-2 rounded-xl bg-card hover:bg-cardhover border border-cardborder text-xs font-semibold text-slate-300 hover:text-white transition-colors shadow-highlight"
+              className="px-4 py-2 rounded-xl bg-card hover:bg-cardhover border border-cardborder text-xs font-bold text-slate-800 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white transition-colors shadow-sm"
             >
               Save Preferences
             </button>
             <button
               type="button"
               onClick={handleAcceptAll}
-              className="px-4 py-2 rounded-xl bg-cyan hover:bg-cyan/90 text-slate-950 text-xs font-bold transition-all shadow-md shadow-cyan/20"
+              className="px-4 py-2 rounded-xl bg-sky-600 dark:bg-cyan hover:bg-sky-700 dark:hover:bg-cyan/90 text-white dark:text-slate-950 text-xs font-bold transition-all shadow-md"
             >
               Accept All Cookies
             </button>

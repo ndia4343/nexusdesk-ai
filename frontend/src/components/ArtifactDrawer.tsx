@@ -30,27 +30,27 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
         <div className="flex items-center gap-2">
           {content.type === "citation" && (
             <>
-              <BookOpen className="w-4 h-4 text-cyan" />
-              <span className="font-semibold text-sm text-slate-100">Verified Knowledge Source</span>
+              <BookOpen className="w-4 h-4 text-sky-600 dark:text-cyan" />
+              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">Verified Knowledge Source</span>
             </>
           )}
           {content.type === "product" && (
             <>
-              <ShoppingBag className="w-4 h-4 text-cyan" />
-              <span className="font-semibold text-sm text-slate-100">Catalog Product Details</span>
+              <ShoppingBag className="w-4 h-4 text-sky-600 dark:text-cyan" />
+              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">Catalog Product Details</span>
             </>
           )}
           {content.type === "escalation" && (
             <>
               <AlertTriangle className="w-4 h-4 text-amber" />
-              <span className="font-semibold text-sm text-slate-100">Escalation Audit Trail</span>
+              <span className="font-bold text-sm text-slate-900 dark:text-slate-100">Escalation Audit Trail</span>
             </>
           )}
         </div>
 
         <button
           onClick={onClose}
-          className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-card rounded-md transition-colors"
+          className="p-1.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-card rounded-md transition-colors"
           title="Close Drawer"
         >
           <X className="w-4 h-4" />
@@ -62,36 +62,36 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
         {/* CITATION VIEW */}
         {content.type === "citation" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-card border border-cardborder shadow-highlight space-y-2.5">
-              <div className="text-xs font-bold text-slate-100">
+            <div className="p-4 rounded-xl bg-card border border-cardborder shadow-sm space-y-2.5">
+              <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
                 {content.data.title}
               </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
                 <span className="font-medium">Vector Semantic Relevance</span>
-                <span className="font-mono text-cyan font-bold">
+                <span className="font-mono text-sky-600 dark:text-cyan font-bold">
                   {(content.data.relevance * 100).toFixed(1)}%
                 </span>
               </div>
               <div className="w-full bg-canvas border border-borderline h-2 rounded-full overflow-hidden">
                 <div
-                  className="bg-cyan h-full rounded-full transition-all duration-500"
+                  className="bg-sky-600 dark:bg-cyan h-full rounded-full transition-all duration-500"
                   style={{ width: `${Math.min(100, Math.max(10, content.data.relevance * 100))}%` }}
                 />
               </div>
             </div>
 
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
                 Indexed Snippet Content
               </div>
-              <div className="p-3.5 rounded-xl bg-canvas border border-cardborder font-mono text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-canvas border border-cardborder font-mono text-xs text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
                 {content.data.snippet}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-emerald-subtle border border-emerald/30 flex items-start gap-2.5 shadow-highlight">
+            <div className="p-3.5 rounded-xl bg-emerald-subtle border border-emerald/30 flex items-start gap-2.5 shadow-sm">
               <ShieldCheck className="w-4 h-4 text-emerald shrink-0 mt-0.5" />
-              <div className="text-xs text-slate-200 font-normal leading-relaxed">
+              <div className="text-xs text-slate-800 dark:text-slate-200 font-medium leading-relaxed">
                 <span className="font-bold text-emerald">Grounded Verification</span>: This source was retrieved during the semantic RAG execution stage and scored above the confidence threshold.
               </div>
             </div>
@@ -101,18 +101,18 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
         {/* PRODUCT VIEW */}
         {content.type === "product" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-card border border-cardborder shadow-highlight space-y-3">
+            <div className="p-4 rounded-xl bg-card border border-cardborder shadow-sm space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="text-sm font-bold text-slate-100">
+                <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   {content.data.name}
                 </div>
-                <div className="text-sm font-mono font-bold text-cyan">
+                <div className="text-sm font-mono font-bold text-sky-600 dark:text-cyan">
                   ${content.data.price.toFixed(2)}
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-canvas border border-borderline text-slate-200">
+                <span className="px-2.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-canvas border border-borderline text-slate-800 dark:text-slate-200">
                   {content.data.category}
                 </span>
                 {content.data.discount && content.data.discount !== "None" && (
@@ -129,19 +129,19 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
                     className={`w-3.5 h-3.5 ${
                       i < Math.floor(content.data.rating)
                         ? "fill-amber text-amber"
-                        : "text-slate-600"
+                        : "text-slate-400 dark:text-slate-600"
                     }`}
                   />
                 ))}
-                <span className="text-xs font-mono text-slate-200 ml-1.5 font-semibold">
+                <span className="text-xs font-mono text-slate-800 dark:text-slate-200 ml-1.5 font-bold">
                   {content.data.rating} / 5.0
                 </span>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-card border border-cardborder shadow-highlight space-y-2 text-xs text-slate-200">
-              <div className="font-bold text-slate-100">Catalog Engine Guarantee</div>
-              <p className="leading-relaxed text-slate-300">
+            <div className="p-3.5 rounded-xl bg-card border border-cardborder shadow-sm space-y-2 text-xs text-slate-800 dark:text-slate-200">
+              <div className="font-bold text-slate-900 dark:text-slate-100">Catalog Engine Guarantee</div>
+              <p className="leading-relaxed text-slate-700 dark:text-slate-300 font-medium">
                 Retrieved directly from the DuckDB structured catalog index. All pricing and numerical filtering constraints are mathematically guaranteed accurate without model hallucinations.
               </p>
             </div>
@@ -151,7 +151,7 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
         {/* ESCALATION VIEW */}
         {content.type === "escalation" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-card border border-amber/40 shadow-highlight space-y-3">
+            <div className="p-4 rounded-xl bg-card border border-amber/50 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-amber uppercase tracking-wider">
                   Support Ticket
@@ -162,23 +162,23 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
               </div>
 
               <div className="space-y-1">
-                <div className="text-[11px] text-slate-400 font-medium">Customer Inquiry</div>
-                <div className="text-xs text-slate-100 font-medium italic">
+                <div className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Customer Inquiry</div>
+                <div className="text-xs text-slate-900 dark:text-slate-100 font-medium italic">
                   &ldquo;{content.data.query}&rdquo;
                 </div>
               </div>
 
               <div className="pt-2 border-t border-borderline flex items-center justify-between text-[11px]">
-                <span className="text-slate-400 flex items-center gap-1 font-medium">
+                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
                   <Clock className="w-3 h-3" /> Timestamp
                 </span>
-                <span className="font-mono text-slate-200 font-medium">
+                <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
                   {new Date(content.data.timestamp).toLocaleTimeString()}
                 </span>
               </div>
 
               <div className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-400 flex items-center gap-1 font-medium">
+                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
                   <Send className="w-3 h-3" /> n8n Webhook Status
                 </span>
                 <span
@@ -193,9 +193,9 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-card border border-cardborder shadow-highlight space-y-2 text-xs text-slate-200">
-              <div className="font-bold text-slate-100">Autonomous Workflow Action</div>
-              <p className="leading-relaxed text-slate-300">
+            <div className="p-3.5 rounded-xl bg-card border border-cardborder shadow-sm space-y-2 text-xs text-slate-800 dark:text-slate-200">
+              <div className="font-bold text-slate-900 dark:text-slate-100">Autonomous Workflow Action</div>
+              <p className="leading-relaxed text-slate-700 dark:text-slate-300 font-medium">
                 The cyclic grader determined human intervention was required. A structured payload was automatically dispatched to the configured n8n customer support workflow, notifying on-call specialists.
               </p>
             </div>

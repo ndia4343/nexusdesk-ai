@@ -11,7 +11,7 @@ import { SignInModal } from "@/components/SignInModal";
 import { PricingModal } from "@/components/PricingModal";
 import { CookieModal } from "@/components/CookieModal";
 import { DEFAULT_WORKSPACES, API_BASE_URL } from "@/lib/constants";
-import { Workspace, ChatMessage, DrawerContent } from "@/types";
+import { Workspace, ChatMessage, DrawerContent, AuthUser } from "@/types";
 
 export default function Home() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>(DEFAULT_WORKSPACES);
@@ -23,6 +23,7 @@ export default function Home() {
   const [pricingModalOpen, setPricingModalOpen] = useState<boolean>(false);
   const [cookieModalOpen, setCookieModalOpen] = useState<boolean>(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [recentSessions, setRecentSessions] = useState<string[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => `sess_${Date.now().toString(36)}`);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -33,7 +34,7 @@ export default function Home() {
   const activeWorkspace =
     workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
 
-  // Initialize theme from localStorage or default to dark
+  // Initialize theme and saved user from localStorage
   useEffect(() => {
     const savedTheme = (localStorage.getItem("nexusdesk_theme") as "dark" | "light") || "dark";
     setTheme(savedTheme);
@@ -43,6 +44,18 @@ export default function Home() {
     } else {
       document.documentElement.classList.remove("light");
       document.documentElement.classList.add("dark");
+    }
+
+    try {
+      const savedUserStr = localStorage.getItem("nexusdesk_user");
+      if (savedUserStr) {
+        const parsed = JSON.parse(savedUserStr);
+        if (parsed && parsed.email) {
+          setCurrentUser(parsed);
+        }
+      }
+    } catch (e) {
+      // ignore json parse error
     }
   }, []);
 
@@ -240,6 +253,11 @@ export default function Home() {
           theme={theme}
           onToggleTheme={handleToggleTheme}
           onOpenSignIn={() => setSignInModalOpen(true)}
+          currentUser={currentUser}
+          onSignOut={() => {
+            setCurrentUser(null);
+            localStorage.removeItem("nexusdesk_user");
+          }}
         />
 
         {/* Centered Chat Canvas */}
@@ -280,6 +298,10 @@ export default function Home() {
         isOpen={signInModalOpen}
         onClose={() => setSignInModalOpen(false)}
         activeWorkspaceName={activeWorkspace.name}
+        onSignInSuccess={(user) => {
+          setCurrentUser(user);
+          localStorage.setItem("nexusdesk_user", JSON.stringify(user));
+        }}
       />
 
       {/* Transparent B2B Pricing Modal */}

@@ -49,6 +49,13 @@ export interface ChatMessage {
   workspaceId?: string;
 }
 
+export interface AuthUser {
+  name: string;
+  email: string;
+  role: string;
+  provider: "google" | "sso" | "custom";
+}
+
 export type DrawerContent =
   | { type: "citation"; data: SourceItem }
   | { type: "product"; data: ProductItem }

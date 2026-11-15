@@ -11,18 +11,23 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("nexusdesk.database")
 
-DB_DIR = os.path.dirname(os.path.abspath(__file__))
-if os.getenv("VERCEL"):
-    DEFAULT_DB_PATH = "/tmp/nexusdesk.db"
-else:
-    DEFAULT_DB_PATH = os.path.join(DB_DIR, "nexusdesk.db")
-DATABASE_PATH = os.getenv("DATABASE_PATH", DEFAULT_DB_PATH)
+def get_db_path() -> str:
+    """Dynamically determine SQLite path, honoring VERCEL and read-only environments."""
+    if os.getenv("DATABASE_PATH"):
+        return os.getenv("DATABASE_PATH")
+    if os.getenv("VERCEL"):
+        return "/tmp/nexusdesk.db"
+    db_dir = os.path.dirname(os.path.abspath(__file__))
+    if not os.access(db_dir, os.W_OK):
+        return "/tmp/nexusdesk.db"
+    return os.path.join(db_dir, "nexusdesk.db")
 
 
 def get_db_connection() -> sqlite3.Connection:
     """Establish and return an SQLite connection with row factory enabled."""
-    os.makedirs(os.path.dirname(DATABASE_PATH), exist_ok=True)
-    conn = sqlite3.connect(DATABASE_PATH, timeout=10.0)
+    db_path = get_db_path()
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -63,7 +68,7 @@ def init_db() -> None:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_session ON session_memory(session_id)")
         
         conn.commit()
-    logger.info("Initialized SQLite database schema at %s", DATABASE_PATH)
+    logger.info("Initialized SQLite database schema at %s", get_db_path())
 
 
 def save_ticket(

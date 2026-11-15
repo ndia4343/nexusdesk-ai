@@ -18,7 +18,7 @@ export const DEFAULT_WORKSPACES: Workspace[] = [
       "Can I return an item after 30 days if the box is open?",
       "Compare MacBook and Dell XPS laptop specs and deals"
     ],
-    totalChunks: 35,
+    totalChunks: null,
     hasCatalog: true
   },
   {
@@ -32,7 +32,7 @@ export const DEFAULT_WORKSPACES: Workspace[] = [
       "What is the consultation fee for dental exams and do you accept insurance?",
       "What happens if I cancel my clinic appointment within 24 hours?"
     ],
-    totalChunks: 14,
+    totalChunks: null,
     hasCatalog: false
   },
   {
@@ -46,7 +46,7 @@ export const DEFAULT_WORKSPACES: Workspace[] = [
       "How do I submit an expense claim for my remote home office setup?",
       "What is the parental leave policy for primary and secondary caregivers?"
     ],
-    totalChunks: 12,
+    totalChunks: null,
     hasCatalog: false
   }
 ];

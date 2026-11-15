@@ -32,7 +32,7 @@ try:
     )
     from backend.rag_pipeline import (
         run_agentic_pipeline, vector_store, catalog_engine,
-        chunk_text, ingest_knowledge_source
+        chunk_text, ingest_knowledge_source, is_safe_public_url
     )
 except Exception as e:
     import traceback
@@ -48,6 +48,7 @@ except Exception as e:
     catalog_engine = None
     chunk_text = None
     ingest_knowledge_source = None
+    is_safe_public_url = None
 
 # Configure logging
 logging.basicConfig(
@@ -232,6 +233,17 @@ async def ingest_knowledge(request: Request):
         if uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
             filename = uploaded_file.filename
             file_bytes = await uploaded_file.read()
+
+    # Validate target URL if provided
+    if target_url and str(target_url).strip():
+        url_str = str(target_url).strip()
+        if is_safe_public_url:
+            is_safe, error_msg = is_safe_public_url(url_str)
+            if not is_safe:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Security rejection for URL: {error_msg}"
+                )
 
     res = await ingest_knowledge_source(
         workspace_id=str(target_workspace).strip() or "retail_ops",

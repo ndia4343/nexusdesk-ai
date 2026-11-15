@@ -126,7 +126,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {getIcon(ws.icon)}
                     <span className="truncate">{ws.name}</span>
                   </div>
-                  {ws.totalChunks !== undefined && (
+                  {ws.totalChunks !== undefined && ws.totalChunks !== null ? (
                     <span
                       className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
                         isActive
@@ -136,6 +136,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       {ws.totalChunks}
                     </span>
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-cyan/60 animate-pulse" />
                   )}
                 </button>
               );
@@ -166,10 +168,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {getIcon(ws.icon)}
                       <span className="truncate">{ws.name}</span>
                     </div>
-                    {ws.totalChunks !== undefined && (
+                    {ws.totalChunks !== undefined && ws.totalChunks !== null ? (
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-canvas text-slate-300 border border-borderline">
                         {ws.totalChunks}
                       </span>
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-amber/60 animate-pulse" />
                     )}
                   </button>
                 );

@@ -5,7 +5,7 @@ export interface Workspace {
   icon: string;
   description: string;
   seedPrompts: string[];
-  totalChunks?: number;
+  totalChunks?: number | null;
   hasCatalog?: boolean;
 }
 

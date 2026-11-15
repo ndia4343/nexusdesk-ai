@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "NexusDesk AI - Multi-Industry Agentic RAG Platform",
-  description: "Autonomous Agentic RAG Customer Support & Operations with LangGraph cyclic reasoning, DuckDB catalog filtering, and n8n escalation.",
+  title: "NexusDesk AI | Customer support answers from your own data",
+  description: "Connect your website, FAQs or product catalog and get an AI support agent that cites its sources and hands tricky cases to your team.",
 };
 
 export default function RootLayout({

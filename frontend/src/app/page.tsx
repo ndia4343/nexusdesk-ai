@@ -7,6 +7,9 @@ import { ChatCanvas } from "@/components/ChatCanvas";
 import { Composer } from "@/components/Composer";
 import { ArtifactDrawer } from "@/components/ArtifactDrawer";
 import { ConnectModal } from "@/components/ConnectModal";
+import { SignInModal } from "@/components/SignInModal";
+import { PricingModal } from "@/components/PricingModal";
+import { CookieModal } from "@/components/CookieModal";
 import { DEFAULT_WORKSPACES, API_BASE_URL } from "@/lib/constants";
 import { Workspace, ChatMessage, DrawerContent } from "@/types";
 
@@ -16,6 +19,10 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [drawerContent, setDrawerContent] = useState<DrawerContent>(null);
   const [connectModalOpen, setConnectModalOpen] = useState<boolean>(false);
+  const [signInModalOpen, setSignInModalOpen] = useState<boolean>(false);
+  const [pricingModalOpen, setPricingModalOpen] = useState<boolean>(false);
+  const [cookieModalOpen, setCookieModalOpen] = useState<boolean>(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [recentSessions, setRecentSessions] = useState<string[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>(() => `sess_${Date.now().toString(36)}`);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -25,6 +32,32 @@ export default function Home() {
   // Active workspace object
   const activeWorkspace =
     workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
+
+  // Initialize theme from localStorage or default to dark
+  useEffect(() => {
+    const savedTheme = (localStorage.getItem("nexusdesk_theme") as "dark" | "light") || "dark";
+    setTheme(savedTheme);
+    if (savedTheme === "light") {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+      document.documentElement.classList.add("dark");
+    }
+  }, []);
+
+  const handleToggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    localStorage.setItem("nexusdesk_theme", nextTheme);
+    if (nextTheme === "light") {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.add("light");
+    } else {
+      document.documentElement.classList.remove("light");
+      document.documentElement.classList.add("dark");
+    }
+  };
 
   // Probe API health on mount
   useEffect(() => {
@@ -48,27 +81,29 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch knowledge metadata for active workspace
+  // Fetch verified knowledge metadata for all workspaces to hydrate counters accurately
   useEffect(() => {
-    const fetchKnowledge = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/knowledge?workspace_id=${activeWorkspaceId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setWorkspaces((prev) =>
-            prev.map((ws) =>
-              ws.id === activeWorkspaceId
-                ? { ...ws, totalChunks: data.total_chunks, hasCatalog: data.has_catalog }
-                : ws
-            )
-          );
+    const fetchAllKnowledge = async () => {
+      for (const ws of workspaces) {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/knowledge?workspace_id=${ws.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            setWorkspaces((prev) =>
+              prev.map((w) =>
+                w.id === ws.id
+                  ? { ...w, totalChunks: data.total_chunks, hasCatalog: data.has_catalog }
+                  : w
+              )
+            );
+          }
+        } catch (e) {
+          // Keep null if unreached
         }
-      } catch (e) {
-        // Fallback silently to defaults
       }
     };
-    fetchKnowledge();
-  }, [activeWorkspaceId]);
+    fetchAllKnowledge();
+  }, [workspaces.length, activeWorkspaceId]);
 
   // Handle sending a message
   const handleSendMessage = async (queryText: string) => {
@@ -176,7 +211,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-canvas font-sans">
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas font-sans relative">
       {/* Collapsible Left Sidebar */}
       <Sidebar
         workspaces={workspaces}
@@ -202,6 +237,9 @@ export default function Home() {
           onSelectWorkspace={handleSelectWorkspace}
           onResetChat={handleNewSession}
           apiHealthy={apiHealthy}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          onOpenSignIn={() => setSignInModalOpen(true)}
         />
 
         {/* Centered Chat Canvas */}
@@ -213,12 +251,14 @@ export default function Home() {
           isLoading={isLoading}
         />
 
-        {/* Floating Bottom Composer */}
+        {/* Floating Bottom Composer with B2B Compliance Footer */}
         <Composer
           onSendMessage={handleSendMessage}
           isLoading={isLoading}
           onOpenConnectModal={() => setConnectModalOpen(true)}
           workspaceName={activeWorkspace.name}
+          onOpenPricing={() => setPricingModalOpen(true)}
+          onOpenCookies={() => setCookieModalOpen(true)}
         />
       </div>
 
@@ -233,6 +273,25 @@ export default function Home() {
         isOpen={connectModalOpen}
         onClose={() => setConnectModalOpen(false)}
         onWorkspaceCreated={handleWorkspaceCreated}
+      />
+
+      {/* Team Sign In Modal */}
+      <SignInModal
+        isOpen={signInModalOpen}
+        onClose={() => setSignInModalOpen(false)}
+        activeWorkspaceName={activeWorkspace.name}
+      />
+
+      {/* Transparent B2B Pricing Modal */}
+      <PricingModal
+        isOpen={pricingModalOpen}
+        onClose={() => setPricingModalOpen(false)}
+      />
+
+      {/* EU GDPR Cookie Settings Modal */}
+      <CookieModal
+        isOpen={cookieModalOpen}
+        onClose={() => setCookieModalOpen(false)}
       />
     </div>
   );

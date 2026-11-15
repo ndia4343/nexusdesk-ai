@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import { ArrowUp, Plus, Loader2 } from "lucide-react";
 
 interface ComposerProps {
@@ -8,13 +9,17 @@ interface ComposerProps {
   isLoading: boolean;
   onOpenConnectModal: () => void;
   workspaceName: string;
+  onOpenPricing: () => void;
+  onOpenCookies: () => void;
 }
 
 export const Composer: React.FC<ComposerProps> = ({
   onSendMessage,
   isLoading,
   onOpenConnectModal,
-  workspaceName
+  workspaceName,
+  onOpenPricing,
+  onOpenCookies
 }) => {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -45,7 +50,7 @@ export const Composer: React.FC<ComposerProps> = ({
   };
 
   return (
-    <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-canvas via-canvas/90 to-transparent pt-6 pb-4 px-4 pointer-events-none z-20">
+    <div className="fixed bottom-0 inset-x-0 bg-gradient-to-t from-canvas via-canvas/95 to-transparent pt-6 pb-3 px-4 pointer-events-none z-20">
       <div className="max-w-3xl mx-auto w-full pointer-events-auto">
         <form
           onSubmit={handleSubmit}
@@ -90,8 +95,36 @@ export const Composer: React.FC<ComposerProps> = ({
           </div>
         </form>
 
-        <div className="mt-2 text-center text-[11px] text-slate-400 tracking-wide font-medium">
-          NexusDesk AI synthesizes verified catalog & policy data. Multi-workspace isolation active.
+        {/* Compact B2B Footer */}
+        <div className="mt-2.5 flex flex-col sm:flex-row items-center justify-between gap-1 text-[11px] text-slate-400 font-medium px-1">
+          <div>
+            NexusDesk AI synthesizes verified catalog & policy data. Multi-workspace isolation active.
+          </div>
+          <div className="flex items-center gap-2.5 text-[11px] text-slate-400">
+            <button
+              type="button"
+              onClick={onOpenPricing}
+              className="hover:text-cyan transition-colors"
+            >
+              Pricing
+            </button>
+            <span className="text-slate-600">•</span>
+            <Link href="/privacy" className="hover:text-cyan transition-colors">
+              Privacy Policy
+            </Link>
+            <span className="text-slate-600">•</span>
+            <Link href="/terms" className="hover:text-cyan transition-colors">
+              Terms
+            </Link>
+            <span className="text-slate-600">•</span>
+            <button
+              type="button"
+              onClick={onOpenCookies}
+              className="hover:text-cyan transition-colors"
+            >
+              Cookie Settings
+            </button>
+          </div>
         </div>
       </div>
     </div>

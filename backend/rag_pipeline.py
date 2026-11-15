@@ -18,8 +18,11 @@ import uuid
 import math
 import logging
 import datetime
+import socket
+import ipaddress
+from urllib.parse import urlparse
 from pathlib import Path
-from typing import Dict, Any, List, Optional, TypedDict
+from typing import Dict, Any, List, Optional, Tuple, TypedDict
 
 import httpx
 import duckdb
@@ -28,6 +31,44 @@ import pandas as pd
 from backend.database import save_ticket, save_message, get_session_history
 
 logger = logging.getLogger("nexusdesk.rag_pipeline")
+
+def is_safe_public_url(url: str) -> Tuple[bool, str]:
+    """Validates that a URL is a valid public HTTP/HTTPS URL and not pointing to localhost or private IPs."""
+    if not url or not isinstance(url, str):
+        return False, "URL cannot be empty."
+    url_str = url.strip()
+    try:
+        parsed = urlparse(url_str)
+        if parsed.scheme.lower() not in ("http", "https"):
+            return False, "Only http:// and https:// URLs are supported."
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "Invalid URL: missing host name."
+        
+        hostname_lower = hostname.lower()
+        if hostname_lower in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "local") or hostname_lower.endswith(".local") or hostname_lower.endswith(".internal"):
+            return False, "Access to localhost or internal network hosts is strictly prohibited."
+        
+        # Check IP literal or resolve DNS
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False, f"Access to private/internal IP ({hostname}) is strictly prohibited."
+        except ValueError:
+            # It's a domain name; resolve DNS to guard against DNS rebinding to private IPs
+            try:
+                resolved = socket.getaddrinfo(hostname, None)
+                for addr in resolved:
+                    ip_str = addr[4][0]
+                    ip_obj = ipaddress.ip_address(ip_str)
+                    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved or ip_obj.is_multicast:
+                        return False, f"URL resolves to a private or internal IP ({ip_str}), which is strictly prohibited."
+            except Exception:
+                pass
+        
+        return True, ""
+    except Exception as e:
+        return False, f"URL validation error: {str(e)}"
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 if not DATA_DIR.exists():
@@ -1299,11 +1340,28 @@ async def ingest_knowledge_source(
     # 1. Scrape URL if provided
     if url and str(url).strip():
         url_str = str(url).strip()
+        is_safe, error_msg = is_safe_public_url(url_str)
+        if not is_safe:
+            logger.warning("Blocked unsafe URL ingestion attempt for '%s': %s", url_str, error_msg)
+            rec = record_knowledge_source(workspace_id, f"URL: {url_str}", "url", 0, f"error: {error_msg[:60]}")
+            recorded_sources.append(rec)
+            return {
+                "status": "error",
+                "workspace_id": workspace_id,
+                "error": error_msg,
+                "ingested_sources": recorded_sources,
+                "total_chunks": len(vector_store.get_chunks(workspace_id)) if vector_store else 0,
+                "new_chunks_indexed": 0
+            }
+
         try:
             from bs4 import BeautifulSoup
-            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 resp = await client.get(url_str)
                 resp.raise_for_status()
+                # Enforce max content length of 5 MB
+                if len(resp.content) > 5 * 1024 * 1024:
+                    raise ValueError("Target page content exceeds maximum allowed size of 5 MB.")
                 soup = BeautifulSoup(resp.text, "html.parser")
                 for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
                     tag.decompose()

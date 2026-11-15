@@ -253,7 +253,8 @@ export default function Home() {
 
       if (res.ok) {
         const data = await res.json();
-        ticketId = data.ticket_id || ticketId;
+        const rawTicket = data.ticket_id || ticketId;
+        ticketId = `#${rawTicket.replace(/^#+/, "")}`;
         webhookStatus = data.webhook_status || data.n8n_status || "dispatched";
         timestamp = data.timestamp || timestamp;
       }

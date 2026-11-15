@@ -29,6 +29,7 @@ import {
   EscalationInfo,
   AgenticAction
 } from "@/types";
+import { MarkdownText } from "./MarkdownText";
 
 interface ChatCanvasProps {
   messages: ChatMessage[];
@@ -58,6 +59,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   };
 
   const getAgenticActionForMessage = (msg: ChatMessage, wsId: string): AgenticAction | null => {
+    // If an escalation ticket is already created in the main response, do not render a duplicate action card
+    if (msg.escalation && msg.escalation.triggered) {
+      return null;
+    }
     if (msg.action) return msg.action;
     const text = (msg.content || "").toLowerCase();
 
@@ -115,8 +120,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       };
     }
 
-    // 4. Low-confidence query or escalation
-    if ((msg.confidenceScore !== undefined && msg.confidenceScore < 0.70) || (msg.escalation && msg.escalation.triggered)) {
+    // 4. Low-confidence query (only if not already escalated)
+    if (msg.confidenceScore !== undefined && msg.confidenceScore < 0.70) {
       return {
         type: "support_escalation",
         title: "Specialist Support Dispatch",
@@ -201,10 +206,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         )}
 
         {/* MESSAGE STREAM */}
-        {messages.map((msg) => {
+        {messages.map((msg, idx) => {
           const isUser = msg.role === "user";
           const isReasoningOpen = !!expandedReasoning[msg.id];
           const action = !isUser ? getAgenticActionForMessage(msg, activeWorkspace.id) : null;
+
+          // Find the user's original query that prompted this assistant response
+          const userQuery = !isUser
+            ? messages
+                .slice(0, idx)
+                .reverse()
+                .find((m) => m.role === "user")?.content || msg.content
+            : msg.content;
 
           return (
             <div
@@ -283,8 +296,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   )}
 
                   {/* Main Grounded Answer Text */}
-                  <div className="p-4 rounded-xl bg-card border border-cardborder shadow-sm text-sm text-slate-900 dark:text-slate-100 leading-relaxed whitespace-pre-wrap font-sans font-normal">
-                    {msg.content}
+                  <div className="p-4 rounded-xl bg-card border border-cardborder shadow-sm text-sm text-slate-900 dark:text-slate-100 leading-relaxed font-sans font-normal">
+                    <MarkdownText content={msg.content} />
                   </div>
 
                   {/* Matching Products Cards (Horizontal Grid) */}
@@ -351,37 +364,50 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   )}
 
                   {/* Escalation Ticket Alert Card */}
-                  {msg.escalation && msg.escalation.triggered && (
-                    <div className="p-4 rounded-xl bg-card border border-amber/50 shadow-sm flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="w-5 h-5 text-amber shrink-0 mt-0.5" />
-                        <div>
-                          <div className="text-xs font-bold text-amber">
-                            Human Support Ticket Created
-                          </div>
-                          <div className="text-xs text-slate-800 dark:text-slate-200 mt-1 font-medium">
-                            Ticket <span className="font-mono font-bold text-amber px-1.5 py-0.5 rounded bg-amber/15 border border-amber/30">#{msg.escalation.ticket_id}</span> has been dispatched via n8n webhook.
+                  {msg.escalation && msg.escalation.triggered && (() => {
+                    const formattedTicketId = msg.escalation.ticket_id
+                      ? `#${msg.escalation.ticket_id.replace(/^#+/, "")}`
+                      : "#ND-UNKNOWN";
+
+                    return (
+                      <div className="p-4 rounded-xl bg-card border border-amber/50 shadow-sm flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="w-5 h-5 text-amber shrink-0 mt-0.5" />
+                          <div>
+                            <div className="text-xs font-bold text-amber-900 dark:text-amber">
+                              Human Support Ticket Created
+                            </div>
+                            <div className="text-xs text-slate-800 dark:text-slate-200 mt-1 font-medium">
+                              Ticket{" "}
+                              <span className="font-mono font-bold text-amber-900 dark:text-amber px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber/15 border border-amber-300 dark:border-amber/30">
+                                {formattedTicketId}
+                              </span>{" "}
+                              has been dispatched via n8n webhook.
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <button
-                        onClick={() =>
-                          onOpenDrawer({
-                            type: "escalation",
-                            data: {
-                              escalation: msg.escalation!,
-                              query: msg.content,
-                              timestamp: msg.timestamp
-                            }
-                          })
-                        }
-                        className="px-3 py-1.5 rounded-lg bg-amber/20 hover:bg-amber/30 text-amber text-xs font-bold transition-colors shrink-0 border border-amber/40"
-                      >
-                        View Audit
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          onClick={() =>
+                            onOpenDrawer({
+                              type: "escalation",
+                              data: {
+                                escalation: {
+                                  ...msg.escalation!,
+                                  ticket_id: formattedTicketId
+                                },
+                                query: userQuery,
+                                timestamp: msg.timestamp
+                              }
+                            })
+                          }
+                          className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber/20 dark:hover:bg-amber/30 text-amber-900 dark:text-amber text-xs font-bold transition-colors shrink-0 border border-amber-300 dark:border-amber/40"
+                        >
+                          View Audit
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Interactive Agentic Action Card */}
                   {action && (
@@ -411,22 +437,25 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       <div className="shrink-0 w-full sm:w-auto">
                         {action.dispatched ? (
                           <button
-                            onClick={() =>
+                            onClick={() => {
+                              const formattedActionTicketId = action.ticketId
+                                ? `#${action.ticketId.replace(/^#+/, "")}`
+                                : "#ND-ACTION";
                               onOpenDrawer({
                                 type: "escalation",
                                 data: {
                                   escalation: {
                                     triggered: true,
-                                    ticket_id: action.ticketId || "#ND-ACTION",
+                                    ticket_id: formattedActionTicketId,
                                     status: "OPEN",
                                     webhook_status: "dispatched",
                                     n8n_status: "dispatched"
                                   },
-                                  query: msg.content,
+                                  query: userQuery,
                                   timestamp: msg.timestamp
                                 }
-                              })
-                            }
+                              });
+                            }}
                             className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-card hover:bg-cardhover border border-cardborder text-xs font-bold text-sky-600 dark:text-cyan hover:text-sky-700 dark:hover:text-cyan/80 transition-colors shadow-sm flex items-center justify-center gap-1.5"
                           >
                             <span>View Live Ticket</span>
@@ -434,7 +463,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           </button>
                         ) : (
                           <button
-                            onClick={() => onTriggerAction(msg.id, action, msg.content)}
+                            onClick={() => onTriggerAction(msg.id, action, userQuery)}
                             className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-sky-600 dark:bg-cyan hover:bg-sky-700 dark:hover:bg-cyan/90 text-white dark:text-slate-950 text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2"
                           >
                             <Sparkles className="w-3.5 h-3.5" />

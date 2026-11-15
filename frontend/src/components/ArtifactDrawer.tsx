@@ -14,6 +14,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { DrawerContent } from "@/types";
+import { MarkdownText } from "./MarkdownText";
 
 interface ArtifactDrawerProps {
   content: DrawerContent;
@@ -84,8 +85,8 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
                 Indexed Snippet Content
               </div>
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-canvas border border-cardborder font-mono text-xs text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
-                {content.data.snippet}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-canvas border border-cardborder text-xs text-slate-800 dark:text-slate-200 leading-relaxed">
+                <MarkdownText content={content.data.snippet} />
               </div>
             </div>
 
@@ -149,72 +150,76 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
         )}
 
         {/* ESCALATION & AGENTIC ACTION VIEW */}
-        {content.type === "escalation" && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-card border border-sky-500/40 dark:border-cyan/40 shadow-sm space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-sky-600 dark:text-cyan uppercase tracking-wider flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald" />
-                  Support Ticket & Action
-                </span>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-sky-100 dark:bg-cyan/15 text-sky-700 dark:text-cyan border border-sky-300 dark:border-cyan/30">
-                  {content.data.escalation.ticket_id?.startsWith("#")
-                    ? content.data.escalation.ticket_id
-                    : `#${content.data.escalation.ticket_id}`}
-                </span>
-              </div>
+        {content.type === "escalation" && (() => {
+          const cleanTicketId = content.data.escalation.ticket_id
+            ? `#${content.data.escalation.ticket_id.replace(/^#+/, "")}`
+            : "#ND-UNKNOWN";
 
-              <div className="space-y-1">
-                <div className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Customer Inquiry / Request</div>
-                <div className="text-xs text-slate-900 dark:text-slate-100 font-medium italic">
-                  &ldquo;{content.data.query}&rdquo;
+          return (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-card border border-amber/50 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-900 dark:text-amber uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald" />
+                    Support Ticket & Action
+                  </span>
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber/15 text-amber-900 dark:text-amber border border-amber-300 dark:border-amber/30">
+                    {cleanTicketId}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Customer Inquiry / Request</div>
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-canvas border border-cardborder text-xs text-slate-900 dark:text-slate-100 font-medium">
+                    <MarkdownText content={content.data.query} />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-borderline flex items-center justify-between text-[11px]">
+                  <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
+                    <Clock className="w-3 h-3" /> Timestamp
+                  </span>
+                  <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
+                    {new Date(content.data.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
+                    <Send className="w-3 h-3" /> n8n Webhook Status
+                  </span>
+                  <span
+                    className={`font-mono font-bold capitalize ${
+                      content.data.escalation.webhook_status === "dispatched" ||
+                      content.data.escalation.n8n_status === "dispatched" ||
+                      content.data.escalation.n8n_status === "sent"
+                        ? "text-emerald"
+                        : "text-amber"
+                    }`}
+                  >
+                    {content.data.escalation.webhook_status || content.data.escalation.n8n_status || "queued_offline"}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
+                    Status
+                  </span>
+                  <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-emerald-subtle text-emerald border border-emerald/30">
+                    {content.data.escalation.status || "OPEN"}
+                  </span>
                 </div>
               </div>
 
-              <div className="pt-2 border-t border-borderline flex items-center justify-between text-[11px]">
-                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
-                  <Clock className="w-3 h-3" /> Timestamp
-                </span>
-                <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
-                  {new Date(content.data.timestamp).toLocaleTimeString()}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
-                  <Send className="w-3 h-3" /> n8n Webhook Status
-                </span>
-                <span
-                  className={`font-mono font-bold capitalize ${
-                    content.data.escalation.webhook_status === "dispatched" ||
-                    content.data.escalation.n8n_status === "dispatched" ||
-                    content.data.escalation.n8n_status === "sent"
-                      ? "text-emerald"
-                      : "text-amber"
-                  }`}
-                >
-                  {content.data.escalation.webhook_status || content.data.escalation.n8n_status || "queued_offline"}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
-                  Status
-                </span>
-                <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-emerald-subtle text-emerald border border-emerald/30">
-                  {content.data.escalation.status || "OPEN"}
-                </span>
+              <div className="p-3.5 rounded-xl bg-card border border-cardborder shadow-sm space-y-2 text-xs text-slate-800 dark:text-slate-200">
+                <div className="font-bold text-slate-900 dark:text-slate-100">Autonomous Workflow Action</div>
+                <p className="leading-relaxed text-slate-700 dark:text-slate-300 font-medium">
+                  The agent initiated an operational workflow action. A structured payload was queued and dispatched to the configured n8n automation engine and recorded in the audit database.
+                </p>
               </div>
             </div>
-
-            <div className="p-3.5 rounded-xl bg-card border border-cardborder shadow-sm space-y-2 text-xs text-slate-800 dark:text-slate-200">
-              <div className="font-bold text-slate-900 dark:text-slate-100">Autonomous Workflow Action</div>
-              <p className="leading-relaxed text-slate-700 dark:text-slate-300 font-medium">
-                The agent initiated an operational workflow action. A structured payload was queued and dispatched to the configured n8n automation engine and recorded in the audit database.
-              </p>
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

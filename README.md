@@ -41,7 +41,7 @@ flowchart TD
 ## What It Does
 
 ### 1. Isolated Workspaces
-- **E-Commerce & Retail (`retail_ops`):** Seeded with a 30-day return policy, 1-year limited hardware warranty rules, and an Amazon consumer electronics catalog.
+- **E-Commerce & Retail (`retail_ops`):** Seeded with a 30-day return policy, 1-year limited hardware warranty rules, and a multi-category consumer electronics catalog.
 - **Clinic & Patient Support (`clinic_ops`):** Seeded with outpatient consultation rates, specialist fees, health insurance copays (BCBS, Aetna, Cigna, UnitedHealthcare), 24-hour cancellation policies, and surgical aftercare protocols.
 - **HR & Employee Operations (`hr_ops`):** Seeded with annual PTO accrual schedules, flexible hybrid work hours, domestic meal per diem rules ($75/day), $25 itemized receipt thresholds, and 36-month IT hardware refresh cycles.
 - **Custom Ingestion Engine:** Accepts public website URLs (HTML parser with script/navbar stripping, 5MB payload limit, and private IP/SSRF protection), document uploads (`.pdf`, `.csv`, `.md`, `.txt`), or raw text to create isolated tenant workspaces dynamically.

@@ -23,8 +23,18 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from backend.database import init_db, list_tickets, get_session_history
-from backend.rag_pipeline import run_agentic_pipeline
+# Graceful import wrapper for database and rag pipeline to ensure FastAPI boots cleanly
+STARTUP_ERROR: Optional[str] = None
+try:
+    from backend.database import init_db, list_tickets, get_session_history
+    from backend.rag_pipeline import run_agentic_pipeline
+except Exception as e:
+    import traceback
+    STARTUP_ERROR = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+    init_db = None
+    list_tickets = None
+    get_session_history = None
+    run_agentic_pipeline = None
 
 # Configure logging
 logging.basicConfig(
@@ -39,7 +49,10 @@ async def lifespan(app: FastAPI):
     """Lifecycle manager for database initialization on startup."""
     try:
         logger.info("Initializing NexusDesk AI database and services...")
-        init_db()
+        if init_db is not None:
+            init_db()
+        else:
+            logger.warning("Database init skipped due to startup error: %s", STARTUP_ERROR)
     except Exception as e:
         logger.warning("Database initialization non-fatal warning: %s", e)
     yield
@@ -123,9 +136,8 @@ async def root():
 async def health_check():
     """Health check endpoint for container probes and monitoring."""
     return {
-        "status": "healthy",
-        "service": "NexusDesk AI",
-        "database": "sqlite_connected"
+        "status": "ok",
+        "startup_error": STARTUP_ERROR
     }
 
 
@@ -141,6 +153,12 @@ async def handle_chat(payload: ChatRequest):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The 'query' field cannot be empty."
+        )
+
+    if STARTUP_ERROR or run_agentic_pipeline is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Pipeline unavailable due to startup error: {STARTUP_ERROR}"
         )
 
     try:
@@ -161,6 +179,12 @@ async def handle_chat(payload: ChatRequest):
 @app.get("/api/tickets", tags=["Support & Audit"])
 async def get_tickets(limit: int = 25):
     """List recent support tickets escalated to Tier 2 / n8n."""
+    if list_tickets is None:
+        return {
+            "count": 0,
+            "tickets": [],
+            "startup_error": STARTUP_ERROR
+        }
     tickets = list_tickets(limit=limit)
     return {
         "count": len(tickets),
@@ -171,6 +195,12 @@ async def get_tickets(limit: int = 25):
 @app.get("/api/history/{session_id}", tags=["Memory"])
 async def get_history(session_id: str):
     """Retrieve stored conversational turns for a session."""
+    if get_session_history is None:
+        return {
+            "session_id": session_id,
+            "turns": [],
+            "startup_error": STARTUP_ERROR
+        }
     history = get_session_history(session_id=session_id, limit=20)
     return {
         "session_id": session_id,

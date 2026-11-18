@@ -7,6 +7,9 @@ export interface Workspace {
   seedPrompts: string[];
   totalChunks?: number | null;
   hasCatalog?: boolean;
+  escalationEmail?: string;
+  brandName?: string;
+  slaText?: string;
 }
 
 export interface ExecutionTraceItem {
@@ -37,6 +40,11 @@ export interface EscalationInfo {
   webhook_status?: string;
   n8n_status: string;
   workspace_id?: string;
+  brand_name?: string;
+  escalation_email?: string;
+  sla_text?: string;
+  customer_email?: string;
+  top_citations?: string[];
   query?: string;
   timestamp?: string;
 }

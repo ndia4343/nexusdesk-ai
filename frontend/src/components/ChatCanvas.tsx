@@ -18,8 +18,11 @@ import {
   Send,
   Zap,
   Tag,
-  ArrowRight
+  ArrowRight,
+  Mail,
+  Loader2
 } from "lucide-react";
+import { API_BASE_URL } from "@/lib/constants";
 import {
   ChatMessage,
   Workspace,
@@ -50,6 +53,55 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 }) => {
   // Store expanded state per message id for Claude-style reasoning accordion
   const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
+
+  // Inline email capture states for escalated tickets
+  const [emailInputs, setEmailInputs] = useState<Record<string, string>>({});
+  const [attachingEmail, setAttachingEmail] = useState<Record<string, boolean>>({});
+  const [attachedEmails, setAttachedEmails] = useState<Record<string, string>>({});
+  const [emailErrors, setEmailErrors] = useState<Record<string, string>>({});
+
+  const handleEmailChange = (ticketId: string, val: string) => {
+    setEmailInputs((prev) => ({ ...prev, [ticketId]: val }));
+    if (emailErrors[ticketId]) {
+      setEmailErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[ticketId];
+        return copy;
+      });
+    }
+  };
+
+  const handleAttachEmail = async (ticketId: string, userQuery: string) => {
+    const email = (emailInputs[ticketId] || "").trim();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!email || !emailRegex.test(email)) {
+      setEmailErrors((prev) => ({ ...prev, [ticketId]: "Please enter a valid email address." }));
+      return;
+    }
+
+    setAttachingEmail((prev) => ({ ...prev, [ticketId]: true }));
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/tickets/attach-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticket_id: ticketId,
+          workspace_id: activeWorkspace.id,
+          customer_email: email,
+          customer_query: userQuery
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to dispatch confirmation receipt.");
+      }
+      setAttachedEmails((prev) => ({ ...prev, [ticketId]: email }));
+    } catch (err: any) {
+      setEmailErrors((prev) => ({ ...prev, [ticketId]: err.message || "Could not dispatch confirmation receipt." }));
+    } finally {
+      setAttachingEmail((prev) => ({ ...prev, [ticketId]: false }));
+    }
+  };
 
   const toggleReasoning = (messageId: string) => {
     setExpandedReasoning((prev) => ({
@@ -369,42 +421,111 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       ? `#${msg.escalation.ticket_id.replace(/^#+/, "")}`
                       : "#ND-UNKNOWN";
 
+                    const detectedEmail = (msg.escalation.customer_email && msg.escalation.customer_email.toLowerCase() !== "not provided")
+                      ? msg.escalation.customer_email
+                      : (() => {
+                          const match = (userQuery || "").match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                          return match ? match[0] : null;
+                        })();
+
+                    const activeEmail = attachedEmails[formattedTicketId] || detectedEmail;
+
                     return (
-                      <div className="p-4 rounded-xl bg-card border border-amber/50 shadow-sm flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="w-5 h-5 text-amber shrink-0 mt-0.5" />
-                          <div>
-                            <div className="text-xs font-bold text-amber-900 dark:text-amber">
-                              Human Support Ticket Created
-                            </div>
-                            <div className="text-xs text-slate-800 dark:text-slate-200 mt-1 font-medium">
-                              Ticket{" "}
-                              <span className="font-mono font-bold text-amber-900 dark:text-amber px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber/15 border border-amber-300 dark:border-amber/30">
-                                {formattedTicketId}
-                              </span>{" "}
-                              has been dispatched via n8n webhook.
+                      <div className="p-4 rounded-xl bg-card border border-amber/50 shadow-sm space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber shrink-0 mt-0.5" />
+                            <div>
+                              <div className="text-xs font-bold text-amber-900 dark:text-amber">
+                                Human Support Ticket Created
+                              </div>
+                              <div className="text-xs text-slate-800 dark:text-slate-200 mt-1 font-medium">
+                                Ticket{" "}
+                                <span className="font-mono font-bold text-amber-900 dark:text-amber px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber/15 border border-amber-300 dark:border-amber/30">
+                                  {formattedTicketId}
+                                </span>{" "}
+                                has been dispatched via n8n webhook.
+                              </div>
                             </div>
                           </div>
+
+                          <button
+                            onClick={() =>
+                              onOpenDrawer({
+                                type: "escalation",
+                                data: {
+                                  escalation: {
+                                    ...msg.escalation!,
+                                    ticket_id: formattedTicketId,
+                                    customer_email: activeEmail || msg.escalation?.customer_email
+                                  },
+                                  query: userQuery,
+                                  timestamp: msg.timestamp
+                                }
+                              })
+                            }
+                            className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber/20 dark:hover:bg-amber/30 text-amber-900 dark:text-amber text-xs font-bold transition-colors shrink-0 border border-amber-300 dark:border-amber/40"
+                          >
+                            View Audit
+                          </button>
                         </div>
 
-                        <button
-                          onClick={() =>
-                            onOpenDrawer({
-                              type: "escalation",
-                              data: {
-                                escalation: {
-                                  ...msg.escalation!,
-                                  ticket_id: formattedTicketId
-                                },
-                                query: userQuery,
-                                timestamp: msg.timestamp
-                              }
-                            })
-                          }
-                          className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber/20 dark:hover:bg-amber/30 text-amber-900 dark:text-amber text-xs font-bold transition-colors shrink-0 border border-amber-300 dark:border-amber/40"
-                        >
-                          View Audit
-                        </button>
+                        {/* Customer Email Confirmation Badge OR Inline Capture Bar */}
+                        {activeEmail ? (
+                          <div className="pt-2.5 border-t border-amber-200/60 dark:border-amber-500/20 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-600/40 px-2.5 py-1.5 rounded-lg">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>Confirmation Receipt Sent to <strong className="font-mono">{activeEmail}</strong></span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="pt-2.5 border-t border-amber-200/60 dark:border-amber-500/20 space-y-1.5">
+                            <div className="text-[11px] font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                              <Mail className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                              <span>Send confirmation receipt &amp; support transcript to your email:</span>
+                            </div>
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                handleAttachEmail(formattedTicketId, userQuery);
+                              }}
+                              className="flex items-center gap-2"
+                            >
+                              <div className="relative flex-1">
+                                <input
+                                  type="email"
+                                  placeholder="name@example.com"
+                                  value={emailInputs[formattedTicketId] || ""}
+                                  onChange={(e) => handleEmailChange(formattedTicketId, e.target.value)}
+                                  disabled={attachingEmail[formattedTicketId]}
+                                  className="w-full px-3 py-1.5 text-xs rounded-lg bg-card border border-cardborder text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:border-sky-500 dark:focus:border-cyan shadow-sm font-medium"
+                                />
+                              </div>
+                              <button
+                                type="submit"
+                                disabled={attachingEmail[formattedTicketId]}
+                                className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 dark:bg-cyan dark:hover:bg-cyan/90 text-white dark:text-slate-950 text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 shrink-0 shadow-sm"
+                              >
+                                {attachingEmail[formattedTicketId] ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Sending...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Send className="w-3 h-3" />
+                                    <span>Send Receipt</span>
+                                  </>
+                                )}
+                              </button>
+                            </form>
+                            {emailErrors[formattedTicketId] && (
+                              <div className="text-[11px] text-red-500 font-medium">
+                                {emailErrors[formattedTicketId]}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

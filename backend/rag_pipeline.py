@@ -87,6 +87,7 @@ class AgentState(TypedDict, total=False):
     session_id: str
     original_query: str
     query: str
+    customer_email: str
     history: List[Dict[str, str]]
     intent: str  # CATALOG_FILTER | POLICY_FAQ | HYBRID_COMPARISON | ESCALATE_ACTION
     intent_reasoning: str
@@ -920,6 +921,63 @@ def grader_node(state: AgentState) -> Dict[str, Any]:
     }
 
 
+# ==============================================================================
+# WORKSPACE METADATA MAPPING (ENTERPRISE MULTI-WORKSPACE AUTOMATION)
+# ==============================================================================
+
+DEFAULT_WORKSPACE_METADATA: Dict[str, Dict[str, str]] = {
+    "retail_ops": {
+        "brand_name": "NexusDesk Retail & E-Commerce",
+        "escalation_email": "support@nexusdesk.com",
+        "sla_text": "2-Hour Response Time SLA (Priority Support)"
+    },
+    "clinic_ops": {
+        "brand_name": "NexusDesk Clinical & Health Network",
+        "escalation_email": "clinical-support@nexusdesk.com",
+        "sla_text": "1-Hour Urgent Clinical SLA (EHR Intake Queue)"
+    },
+    "hr_ops": {
+        "brand_name": "NexusDesk People Operations & HR",
+        "escalation_email": "hr-ops@nexusdesk.com",
+        "sla_text": "24-Hour Confidential HR SLA (People Operations Queue)"
+    }
+}
+
+
+def get_workspace_metadata(workspace_id: str) -> Dict[str, str]:
+    """
+    Retrieves enterprise metadata mapping (brand_name, escalation_email, and sla_text)
+    for ecommerce, clinic, hr, and any custom workspace created via Connect Website.
+    Default fallback escalation email is contact@zavianlabs.com.
+    """
+    norm_ws = (workspace_id or "retail_ops").strip().lower()
+    if norm_ws in ("demo", "retail", "retail_ops", "ecommerce"):
+        norm_ws = "retail_ops"
+    elif norm_ws in ("clinic", "clinic_ops", "healthcare"):
+        norm_ws = "clinic_ops"
+    elif norm_ws in ("hr", "hr_ops", "internal"):
+        norm_ws = "hr_ops"
+
+    if norm_ws in DEFAULT_WORKSPACE_METADATA:
+        return dict(DEFAULT_WORKSPACE_METADATA[norm_ws])
+
+    # Check database for custom workspace metadata
+    try:
+        from backend.database import get_workspace_meta
+        db_meta = get_workspace_meta(norm_ws)
+        if db_meta:
+            return db_meta
+    except Exception as e:
+        logger.debug("Database workspace metadata lookup error for %s: %s", norm_ws, e)
+
+    brand_title = norm_ws.replace("_", " ").replace("-", " ").title()
+    return {
+        "brand_name": f"{brand_title} Support",
+        "escalation_email": "contact@zavianlabs.com",
+        "sla_text": "4-Hour Response Time SLA (Enterprise Custom Support)"
+    }
+
+
 def escalation_node(state: AgentState) -> Dict[str, Any]:
     """Node 5: Creates SQLite support ticket and sends an HTTP POST payload to n8n webhook with timeout fallback.
     Never fails or stalls when N8N_WEBHOOK_URL is unreachable or offline.
@@ -932,21 +990,42 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
     workspace_id = state.get("workspace_id", "retail_ops")
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    # Extract customer email if provided in customer_query
-    email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', customer_query or "")
-    customer_email = email_match.group(0) if email_match else "Not Provided"
+    # Workspace metadata mapping (brand_name, escalation_email, sla_text)
+    ws_meta = get_workspace_metadata(workspace_id)
+    brand_name = ws_meta["brand_name"]
+    escalation_email = ws_meta["escalation_email"]
+    sla_text = ws_meta["sla_text"]
 
-    # 1. Generate structured ticket ID (#ND- + 6 uppercase alphanumeric) and payload first
+    # Extract customer email if provided in customer_query via regex or accept customer_email from state
+    provided_email = state.get("customer_email")
+    if provided_email and str(provided_email).strip() and str(provided_email).strip().lower() != "not provided":
+        customer_email = str(provided_email).strip()
+    else:
+        email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', customer_query or "")
+        customer_email = email_match.group(0) if email_match else "Not Provided"
+
+    # Extract top citations (titles of retrieved sources)
+    top_citations: List[str] = []
+    sources = state.get("sources", [])
+    if sources:
+        top_citations = [s.get("title", "") for s in sources if s.get("title")]
+
+    # 1. Generate structured ticket ID (#ND- + 6 uppercase alphanumeric)
     ticket_id = f"#ND-{uuid.uuid4().hex[:6].upper()}"
 
     payload = {
         "ticket_id": ticket_id,
-        "session_id": session_id,
+        "workspace_id": workspace_id,
+        "brand_name": brand_name,
+        "escalation_email": escalation_email,
+        "sla_text": sla_text,
         "customer_query": customer_query,
         "customer_email": customer_email,
         "intent": intent,
         "confidence_score": confidence_score,
-        "workspace_id": workspace_id,
+        "top_citations": top_citations,
+        "status": "Open",
+        "session_id": session_id,
         "timestamp": timestamp
     }
 
@@ -981,17 +1060,23 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
         customer_query=customer_query,
         intent=intent,
         confidence_score=confidence_score,
-        status="OPEN",
+        status="Open",
         n8n_status=webhook_status,
         created_at=timestamp,
-        workspace_id=workspace_id
+        workspace_id=workspace_id,
+        customer_email=customer_email
     )
 
     ticket_obj = {
         "ticket_id": ticket_id,
-        "status": "OPEN",
+        "status": "Open",
         "webhook_status": webhook_status,
         "workspace_id": workspace_id,
+        "brand_name": brand_name,
+        "escalation_email": escalation_email,
+        "sla_text": sla_text,
+        "customer_email": customer_email,
+        "top_citations": top_citations,
         "query": customer_query,
         "timestamp": timestamp
     }
@@ -999,10 +1084,15 @@ def escalation_node(state: AgentState) -> Dict[str, Any]:
     escalation_info = {
         "triggered": True,
         "ticket_id": ticket_id,
-        "status": "OPEN",
+        "status": "Open",
         "webhook_status": webhook_status,
         "n8n_status": webhook_status,
         "workspace_id": workspace_id,
+        "brand_name": brand_name,
+        "escalation_email": escalation_email,
+        "sla_text": sla_text,
+        "customer_email": customer_email,
+        "top_citations": top_citations,
         "query": customer_query,
         "timestamp": timestamp
     }
@@ -1336,7 +1426,8 @@ _compiled_graph = create_agentic_workflow()
 def run_agentic_pipeline(
     query: str,
     session_id: str = "default_session",
-    workspace_id: str = "retail_ops"
+    workspace_id: str = "retail_ops",
+    customer_email: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Executes the 5-node cyclic workflow for a query, session_id, and workspace_id.
@@ -1349,6 +1440,7 @@ def run_agentic_pipeline(
         "session_id": session_id,
         "original_query": query,
         "query": query,
+        "customer_email": (customer_email or "").strip(),
         "history": history,
         "intent": "",
         "intent_reasoning": "",
@@ -1501,14 +1593,29 @@ async def ingest_knowledge_source(
     url: Optional[str] = None,
     file_bytes: Optional[bytes] = None,
     filename: Optional[str] = None,
-    faq_text: Optional[str] = None
+    faq_text: Optional[str] = None,
+    escalation_email: Optional[str] = None,
+    brand_name: Optional[str] = None,
+    sla_text: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Ingests and indexes custom content (URL, file, or raw FAQ text) into the specified workspace.
     """
-    from backend.database import record_knowledge_source
+    from backend.database import record_knowledge_source, save_workspace_meta
     new_chunks = []
     recorded_sources = []
+
+    # If workspace metadata provided or custom workspace ingested, persist metadata
+    if escalation_email or brand_name or sla_text:
+        clean_email = (escalation_email or "contact@zavianlabs.com").strip()
+        clean_brand = (brand_name or workspace_id.replace("_", " ").title()).strip()
+        clean_sla = (sla_text or "Under 2-4 Hours (Tier 1 Support SLA)").strip()
+        save_workspace_meta(
+            workspace_id=workspace_id,
+            brand_name=clean_brand,
+            escalation_email=clean_email,
+            sla_text=clean_sla
+        )
 
     # 1. Scrape URL if provided
     if url and str(url).strip():

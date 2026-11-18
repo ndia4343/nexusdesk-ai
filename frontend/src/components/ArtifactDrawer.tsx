@@ -175,6 +175,50 @@ export const ArtifactDrawer: React.FC<ArtifactDrawerProps> = ({ content, onClose
                   </div>
                 </div>
 
+                {content.data.escalation.customer_email && content.data.escalation.customer_email !== "Not Provided" && (
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
+                      Customer Email
+                    </span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
+                      {content.data.escalation.customer_email}
+                    </span>
+                  </div>
+                )}
+
+                {content.data.escalation.brand_name && (
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
+                      Brand / Workspace
+                    </span>
+                    <span className="text-slate-800 dark:text-slate-200 font-bold">
+                      {content.data.escalation.brand_name}
+                    </span>
+                  </div>
+                )}
+
+                {content.data.escalation.escalation_email && (
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
+                      Escalation Route
+                    </span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
+                      {content.data.escalation.escalation_email}
+                    </span>
+                  </div>
+                )}
+
+                {content.data.escalation.sla_text && (
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600 dark:text-slate-400 font-medium">
+                      SLA Target
+                    </span>
+                    <span className="text-sky-700 dark:text-cyan font-bold">
+                      {content.data.escalation.sla_text}
+                    </span>
+                  </div>
+                )}
+
                 <div className="pt-2 border-t border-borderline flex items-center justify-between text-[11px]">
                   <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 font-medium">
                     <Clock className="w-3 h-3" /> Timestamp

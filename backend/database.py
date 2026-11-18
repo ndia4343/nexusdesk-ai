@@ -77,13 +77,29 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             )
         """)
+
+        # Workspace metadata table for brand name, escalation route, and SLA tier
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS workspace_metadata (
+                workspace_id TEXT PRIMARY KEY,
+                brand_name TEXT NOT NULL,
+                escalation_email TEXT NOT NULL,
+                sla_text TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
         
-        # Check and migrate columns if tables previously existed without workspace_id
+        # Check and migrate columns if tables previously existed without workspace_id or customer_email
         cursor.execute("PRAGMA table_info(tickets)")
         cols_tickets = [col[1] for col in cursor.fetchall()]
         if "workspace_id" not in cols_tickets:
             try:
                 cursor.execute("ALTER TABLE tickets ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'demo'")
+            except Exception:
+                pass
+        if "customer_email" not in cols_tickets:
+            try:
+                cursor.execute("ALTER TABLE tickets ADD COLUMN customer_email TEXT")
             except Exception:
                 pass
 
@@ -100,6 +116,7 @@ def init_db() -> None:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tickets_workspace ON tickets(workspace_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_session ON session_memory(session_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_workspace ON knowledge_sources(workspace_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_workspace_meta ON workspace_metadata(workspace_id)")
         
         conn.commit()
     logger.info("Initialized SQLite database schema at %s", get_db_path())
@@ -115,7 +132,8 @@ def save_ticket(
     n8n_status: str = "none",
     details: Optional[str] = None,
     created_at: Optional[str] = None,
-    workspace_id: str = "demo"
+    workspace_id: str = "demo",
+    customer_email: Optional[str] = None
 ) -> Dict[str, Any]:
     """Persist a new support ticket to the SQLite database."""
     if not created_at:
@@ -125,9 +143,9 @@ def save_ticket(
         cursor = conn.cursor()
         cursor.execute("""
             INSERT OR REPLACE INTO tickets 
-            (ticket_id, workspace_id, session_id, customer_query, intent, confidence_score, status, n8n_status, details, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (ticket_id, workspace_id, session_id, customer_query, intent, confidence_score, status, n8n_status, details, created_at))
+            (ticket_id, workspace_id, session_id, customer_query, customer_email, intent, confidence_score, status, n8n_status, details, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (ticket_id, workspace_id, session_id, customer_query, customer_email, intent, confidence_score, status, n8n_status, details, created_at))
         conn.commit()
 
     logger.info("Ticket %s saved successfully with workspace=%s, n8n_status=%s", ticket_id, workspace_id, n8n_status)
@@ -136,12 +154,80 @@ def save_ticket(
         "workspace_id": workspace_id,
         "session_id": session_id,
         "customer_query": customer_query,
+        "customer_email": customer_email,
         "intent": intent,
         "confidence_score": confidence_score,
         "status": status,
         "n8n_status": n8n_status,
         "created_at": created_at
     }
+
+
+def save_workspace_meta(
+    workspace_id: str,
+    brand_name: str,
+    escalation_email: str = "contact@zavianlabs.com",
+    sla_text: str = "4-Hour Response Time SLA (Enterprise Custom Support)"
+) -> Dict[str, Any]:
+    """Save or update metadata for a workspace (brand_name, escalation_email, sla_text)."""
+    created_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    norm_id = workspace_id.strip().lower()
+    clean_brand = brand_name.strip()
+    clean_email = (escalation_email.strip() or "contact@zavianlabs.com")
+    clean_sla = (sla_text.strip() or "4-Hour Response Time SLA (Enterprise Custom Support)")
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO workspace_metadata (workspace_id, brand_name, escalation_email, sla_text, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (norm_id, clean_brand, clean_email, clean_sla, created_at))
+            conn.commit()
+    except Exception as e:
+        logger.warning("Error saving workspace metadata for %s: %s", norm_id, e)
+
+    return {
+        "workspace_id": norm_id,
+        "brand_name": clean_brand,
+        "escalation_email": clean_email,
+        "sla_text": clean_sla
+    }
+
+
+def get_workspace_meta(workspace_id: str) -> Optional[Dict[str, str]]:
+    """Retrieve custom workspace metadata if saved in SQLite."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT brand_name, escalation_email, sla_text FROM workspace_metadata WHERE workspace_id = ?", (workspace_id.strip().lower(),))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "brand_name": row["brand_name"],
+                    "escalation_email": row["escalation_email"],
+                    "sla_text": row["sla_text"]
+                }
+    except Exception as e:
+        logger.warning("Error reading workspace metadata: %s", e)
+    return None
+
+
+def update_ticket_customer_email(ticket_id: str, customer_email: str, n8n_status: Optional[str] = None) -> bool:
+    """Update customer_email and optionally n8n_status for an existing ticket."""
+    clean_id = ticket_id.strip()
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if n8n_status:
+                cursor.execute("UPDATE tickets SET customer_email = ?, n8n_status = ? WHERE ticket_id = ?", (customer_email.strip(), n8n_status, clean_id))
+            else:
+                cursor.execute("UPDATE tickets SET customer_email = ? WHERE ticket_id = ?", (customer_email.strip(), clean_id))
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        logger.warning("Error updating ticket customer_email for %s: %s", clean_id, e)
+        return False
 
 
 def update_ticket_n8n_status(ticket_id: str, n8n_status: str) -> None:

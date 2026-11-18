@@ -15,7 +15,7 @@ import { API_BASE_URL } from "@/lib/constants";
 interface ConnectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onWorkspaceCreated: (workspaceId: string, name: string, totalChunks: number) => void;
+  onWorkspaceCreated: (workspaceId: string, name: string, totalChunks: number, escalationEmail?: string) => void;
 }
 
 export const ConnectModal: React.FC<ConnectModalProps> = ({
@@ -25,6 +25,7 @@ export const ConnectModal: React.FC<ConnectModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<"url" | "file" | "text">("url");
   const [companyName, setCompanyName] = useState("");
+  const [escalationEmail, setEscalationEmail] = useState("contact@zavianlabs.com");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [faqText, setFaqText] = useState("");
@@ -64,10 +65,12 @@ export const ConnectModal: React.FC<ConnectModalProps> = ({
     setLoading(true);
 
     try {
+      const cleanEmail = escalationEmail.trim() || "contact@zavianlabs.com";
       let res;
       if (activeTab === "file" && file) {
         const formData = new FormData();
         formData.append("workspace_id", targetWs);
+        formData.append("escalation_email", cleanEmail);
         formData.append("file", file);
         res = await fetch(`${API_BASE_URL}/api/ingest`, {
           method: "POST",
@@ -78,14 +81,14 @@ export const ConnectModal: React.FC<ConnectModalProps> = ({
         res = await fetch(`${API_BASE_URL}/api/ingest`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspace_id: targetWs, url: url.trim() })
+          body: JSON.stringify({ workspace_id: targetWs, url: url.trim(), escalation_email: cleanEmail })
         });
       } else {
         if (!faqText.trim()) throw new Error("Please enter document or FAQ text.");
         res = await fetch(`${API_BASE_URL}/api/ingest`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspace_id: targetWs, faq_text: faqText.trim() })
+          body: JSON.stringify({ workspace_id: targetWs, faq_text: faqText.trim(), escalation_email: cleanEmail })
         });
       }
 
@@ -97,7 +100,7 @@ export const ConnectModal: React.FC<ConnectModalProps> = ({
       const data = await res.json();
       setSuccess(`Indexed ${data.new_chunks_indexed || 0} chunks into workspace '${targetWs}'!`);
       setTimeout(() => {
-        onWorkspaceCreated(targetWs, name, data.total_chunks || data.new_chunks_indexed || 0);
+        onWorkspaceCreated(targetWs, name, data.total_chunks || data.new_chunks_indexed || 0, cleanEmail);
         onClose();
       }, 1000);
     } catch (err: any) {
@@ -180,6 +183,20 @@ export const ConnectModal: React.FC<ConnectModalProps> = ({
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               required
+              className="w-full px-3.5 py-2.5 rounded-xl bg-card border border-cardborder text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:border-sky-500 dark:focus:border-cyan shadow-sm font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Support Escalation Email (Optional)</span>
+              <span className="text-[10px] text-slate-500 font-normal lowercase">n8n webhook destination</span>
+            </label>
+            <input
+              type="email"
+              placeholder="contact@zavianlabs.com"
+              value={escalationEmail}
+              onChange={(e) => setEscalationEmail(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-xl bg-card border border-cardborder text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:outline-none focus:border-sky-500 dark:focus:border-cyan shadow-sm font-medium"
             />
           </div>

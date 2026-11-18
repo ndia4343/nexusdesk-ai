@@ -7,10 +7,14 @@ import os
 os.environ["HOME"] = "/tmp"
 os.environ["TMPDIR"] = "/tmp"
 
+import re
+import uuid
+import datetime
 import logging
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
+import httpx
 from dotenv import load_dotenv
 
 # Load .env automatically from project root and current working directory
@@ -27,12 +31,14 @@ from pydantic import BaseModel, Field
 STARTUP_ERROR: Optional[str] = None
 try:
     from backend.database import (
-        init_db, list_tickets, save_ticket, get_session_history,
-        record_knowledge_source, list_knowledge_sources, delete_knowledge_sources
+        init_db, list_tickets, save_ticket, get_ticket, get_session_history,
+        record_knowledge_source, list_knowledge_sources, delete_knowledge_sources,
+        update_ticket_customer_email, get_workspace_meta, save_workspace_meta
     )
     from backend.rag_pipeline import (
         run_agentic_pipeline, vector_store, catalog_engine,
-        chunk_text, ingest_knowledge_source, is_safe_public_url
+        chunk_text, ingest_knowledge_source, is_safe_public_url,
+        get_workspace_metadata
     )
 except Exception as e:
     import traceback
@@ -40,16 +46,21 @@ except Exception as e:
     init_db = None
     list_tickets = None
     save_ticket = None
+    get_ticket = None
     get_session_history = None
     record_knowledge_source = None
     list_knowledge_sources = None
     delete_knowledge_sources = None
+    update_ticket_customer_email = None
+    get_workspace_meta = None
+    save_workspace_meta = None
     run_agentic_pipeline = None
     vector_store = None
     catalog_engine = None
     chunk_text = None
     ingest_knowledge_source = None
     is_safe_public_url = None
+    get_workspace_metadata = None
 
 # Configure logging
 logging.basicConfig(
@@ -99,6 +110,7 @@ class ChatRequest(BaseModel):
     query: str = Field(..., description="Customer message or support query")
     session_id: str = Field(default="default_session", description="Unique conversation session identifier")
     workspace_id: str = Field(default="retail_ops", description="Workspace tenant identifier for data isolation")
+    customer_email: Optional[str] = Field(default=None, description="Optional customer email address")
 
 
 class ExecutionTraceItem(BaseModel):
@@ -125,7 +137,24 @@ class SourceItem(BaseModel):
 class EscalationInfo(BaseModel):
     triggered: bool
     ticket_id: Optional[str] = None
+    status: Optional[str] = None
+    webhook_status: Optional[str] = None
     n8n_status: str
+    workspace_id: Optional[str] = None
+    brand_name: Optional[str] = None
+    escalation_email: Optional[str] = None
+    sla_text: Optional[str] = None
+    customer_email: Optional[str] = None
+    top_citations: Optional[List[str]] = None
+    query: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+class AttachEmailPayload(BaseModel):
+    ticket_id: str = Field(..., description="Escalated ticket ID (e.g. #ND-XXXXXX)")
+    workspace_id: str = Field(default="retail_ops", description="Workspace tenant identifier")
+    customer_email: str = Field(..., description="Customer contact email for confirmation receipt")
+    customer_query: Optional[str] = Field(default="Customer attached contact email for support ticket", description="Original user query or ticket context")
 
 
 class ChatResponse(BaseModel):
@@ -207,7 +236,8 @@ async def handle_chat(payload: ChatRequest):
         result = run_agentic_pipeline(
             query=payload.query.strip(),
             session_id=session_id,
-            workspace_id=workspace_id
+            workspace_id=workspace_id,
+            customer_email=payload.customer_email
         )
         return result
     except Exception as e:
@@ -222,7 +252,8 @@ async def handle_chat(payload: ChatRequest):
 async def ingest_knowledge(request: Request):
     """
     Ingests knowledge documents, FAQs, web pages, or product catalogs into a workspace.
-    Accepts JSON or multipart/form-data with workspace_id, optional url, optional file, or raw faq_text.
+    Accepts JSON or multipart/form-data with workspace_id, optional url, optional file, raw faq_text,
+    and optional escalation_email (defaulting to contact@zavianlabs.com).
     """
     if STARTUP_ERROR or ingest_knowledge_source is None:
         raise HTTPException(
@@ -234,6 +265,9 @@ async def ingest_knowledge(request: Request):
     target_workspace = "retail_ops"
     target_url = None
     target_faq_text = None
+    escalation_email = None
+    brand_name = None
+    sla_text = None
     file_bytes = None
     filename = None
 
@@ -245,11 +279,17 @@ async def ingest_knowledge(request: Request):
         target_workspace = body.get("workspace_id", "retail_ops")
         target_url = body.get("url")
         target_faq_text = body.get("faq_text")
+        escalation_email = body.get("escalation_email")
+        brand_name = body.get("brand_name")
+        sla_text = body.get("sla_text")
     else:
         form = await request.form()
         target_workspace = form.get("workspace_id", "retail_ops")
         target_url = form.get("url")
         target_faq_text = form.get("faq_text")
+        escalation_email = form.get("escalation_email")
+        brand_name = form.get("brand_name")
+        sla_text = form.get("sla_text")
         uploaded_file = form.get("file")
         if uploaded_file and hasattr(uploaded_file, "filename") and uploaded_file.filename:
             filename = uploaded_file.filename
@@ -271,7 +311,10 @@ async def ingest_knowledge(request: Request):
         url=target_url,
         file_bytes=file_bytes,
         filename=filename,
-        faq_text=target_faq_text
+        faq_text=target_faq_text,
+        escalation_email=str(escalation_email).strip() if escalation_email else "contact@zavianlabs.com",
+        brand_name=str(brand_name).strip() if brand_name else None,
+        sla_text=str(sla_text).strip() if sla_text else None
     )
     return res
 
@@ -453,6 +496,109 @@ async def get_tickets(limit: int = 25, workspace_id: Optional[str] = None):
     return {
         "count": len(tickets),
         "tickets": tickets
+    }
+
+
+@app.post("/api/tickets/attach-email", tags=["Support & Audit"])
+async def attach_email_to_ticket(payload: AttachEmailPayload):
+    """
+    Attaches a customer email address to an existing or escalated support ticket,
+    persists it in SQLite, and forwards full ticket + workspace metadata to n8n webhook.
+    """
+    clean_email = (payload.customer_email or "").strip()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid customer_email address is required."
+        )
+
+    norm_ws = (payload.workspace_id or "retail_ops").strip().lower()
+    if norm_ws in ("demo", "retail", "retail_ops", "ecommerce"):
+        norm_ws = "retail_ops"
+    elif norm_ws in ("clinic", "clinic_ops", "healthcare"):
+        norm_ws = "clinic_ops"
+    elif norm_ws in ("hr", "hr_ops", "internal"):
+        norm_ws = "hr_ops"
+
+    # Workspace metadata
+    ws_meta = get_workspace_metadata(norm_ws) if get_workspace_metadata else {
+        "brand_name": norm_ws.replace("_", " ").title(),
+        "escalation_email": "contact@zavianlabs.com",
+        "sla_text": "Under 2-4 Hours (Tier 1 Support SLA)"
+    }
+    brand_name = ws_meta.get("brand_name", norm_ws)
+    escalation_email = ws_meta.get("escalation_email", "contact@zavianlabs.com")
+    sla_text = ws_meta.get("sla_text", "Under 2-4 Hours (Tier 1 Support SLA)")
+
+    # Fetch existing ticket or query
+    cust_query = (payload.customer_query or "").strip()
+    if (not cust_query or cust_query == "Customer attached contact email for support ticket") and get_ticket:
+        try:
+            existing_ticket = get_ticket(payload.ticket_id)
+            if existing_ticket and existing_ticket.get("customer_query"):
+                cust_query = existing_ticket["customer_query"]
+        except Exception:
+            pass
+    if not cust_query:
+        cust_query = "Customer attached contact email for support ticket"
+
+    # Build forward payload matching requirement:
+    # (ticket_id, workspace_id, brand_name, escalation_email, sla_text, customer_query, customer_email, intent: 'EMAIL_ATTACHED', confidence_score: '100%', status: 'Open')
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    n8n_payload = {
+        "ticket_id": payload.ticket_id,
+        "workspace_id": norm_ws,
+        "brand_name": brand_name,
+        "escalation_email": escalation_email,
+        "sla_text": sla_text,
+        "customer_query": cust_query,
+        "customer_email": clean_email,
+        "intent": "EMAIL_ATTACHED",
+        "confidence_score": "100%",
+        "status": "Open",
+        "timestamp": timestamp
+    }
+
+    # Dispatch to n8n webhook with 3.0s timeout
+    webhook_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
+    webhook_status = "queued_offline"
+    if webhook_url:
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                res = client.post(webhook_url, json=n8n_payload)
+                if res.is_success:
+                    webhook_status = "dispatched"
+                    logger.info("n8n webhook acknowledged receipt for attach-email ticket %s", payload.ticket_id)
+                else:
+                    webhook_status = "queued_offline"
+                    logger.warning("n8n webhook returned status %s for attach-email ticket %s", res.status_code, payload.ticket_id)
+        except httpx.TimeoutException:
+            webhook_status = "queued_offline"
+            logger.warning("n8n webhook timed out for attach-email ticket %s", payload.ticket_id)
+        except Exception as e:
+            webhook_status = "queued_offline"
+            logger.warning("n8n webhook error for attach-email ticket %s: %s", payload.ticket_id, e)
+    else:
+        webhook_status = "queued_offline"
+
+    # Update ticket in SQLite
+    if update_ticket_customer_email:
+        try:
+            update_ticket_customer_email(payload.ticket_id, clean_email, n8n_status=webhook_status)
+        except Exception as e:
+            logger.warning("Failed to update ticket email in SQLite: %s", e)
+
+    return {
+        "status": "ok",
+        "ticket_id": payload.ticket_id,
+        "workspace_id": norm_ws,
+        "brand_name": brand_name,
+        "escalation_email": escalation_email,
+        "sla_text": sla_text,
+        "customer_email": clean_email,
+        "webhook_status": webhook_status,
+        "n8n_status": webhook_status,
+        "message": f"Confirmation receipt dispatched to {clean_email}"
     }
 
 

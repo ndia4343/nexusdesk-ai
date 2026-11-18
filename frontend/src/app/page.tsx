@@ -211,7 +211,7 @@ export default function Home() {
   };
 
   // Custom workspace created callback
-  const handleWorkspaceCreated = (id: string, name: string, totalChunks: number) => {
+  const handleWorkspaceCreated = (id: string, name: string, totalChunks: number, escalationEmail?: string) => {
     const newWs: Workspace = {
       id,
       name,
@@ -224,7 +224,8 @@ export default function Home() {
         "How do I request support or submit a request?"
       ],
       totalChunks,
-      hasCatalog: false
+      hasCatalog: false,
+      escalationEmail: escalationEmail || "contact@zavianlabs.com"
     };
 
     setWorkspaces((prev) => [...prev.filter((w) => w.id !== id), newWs]);

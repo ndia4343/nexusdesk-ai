@@ -110,42 +110,57 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     }));
   };
 
-  const getAgenticActionForMessage = (msg: ChatMessage, wsId: string): AgenticAction | null => {
+  const getAgenticActionForMessage = (
+    msg: ChatMessage,
+    wsId: string,
+    wsName?: string
+  ): AgenticAction | null => {
     // If an escalation ticket is already created in the main response, do not render a duplicate action card
     if (msg.escalation && msg.escalation.triggered) {
       return null;
     }
     if (msg.action) return msg.action;
-    const text = (msg.content || "").toLowerCase();
 
-    // 1. Expense Claim / Reimbursement / Per-Diem
-    if (
-      text.includes("expense") ||
-      text.includes("per diem") ||
-      text.includes("per-diem") ||
-      text.includes("reimburse") ||
-      text.includes("receipt") ||
-      text.includes("stipend") ||
-      text.includes("concur")
-    ) {
+    const normWs = (wsId || "").trim().toLowerCase();
+    const nameLower = (wsName || "").toLowerCase();
+
+    const isHR =
+      normWs === "hr" ||
+      normWs === "hr_ops" ||
+      normWs.includes("hr") ||
+      normWs.includes("people") ||
+      nameLower.includes("hr") ||
+      nameLower.includes("people") ||
+      nameLower.includes("employee");
+
+    const isClinic =
+      normWs === "clinic" ||
+      normWs === "clinic_ops" ||
+      normWs.includes("clinic") ||
+      normWs.includes("health") ||
+      nameLower.includes("clinic") ||
+      nameLower.includes("patient");
+
+    const isRetail =
+      normWs === "retail_ops" ||
+      normWs === "retail" ||
+      normWs === "ecommerce" ||
+      normWs === "demo" ||
+      nameLower.includes("retail") ||
+      nameLower.includes("commerce");
+
+    // 1. HR & Employee Operations Workspace
+    if (isHR) {
       return {
-        type: "expense_claim",
-        title: "Automated Expense Claim Workflow",
-        subtitle: "Pre-validates itemized receipts and per-diem thresholds before dispatching to accounting.",
+        type: "hr_leave_request",
+        title: "HR Leave & People Operations Ticket",
+        subtitle: "Logs leave or policy request in People Portal and dispatches approval workflow via n8n.",
         buttonLabel: "Trigger Workflow / Submit Request"
       };
     }
 
-    // 2. Appointment Booking / Clinical Scheduling
-    if (
-      text.includes("appointment") ||
-      text.includes("consultation") ||
-      text.includes("schedule") ||
-      text.includes("doctor") ||
-      text.includes("clinic") ||
-      text.includes("copay") ||
-      text.includes("patient")
-    ) {
+    // 2. Clinic & Patient Support Workspace
+    if (isClinic) {
       return {
         type: "appointment_booking",
         title: "Clinical Appointment Booking Dispatch",
@@ -154,45 +169,43 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       };
     }
 
-    // 3. Return Exception / Warranty RMA
-    if (
-      text.includes("return") ||
-      text.includes("refund") ||
-      text.includes("warranty") ||
-      text.includes("replacement") ||
-      text.includes("rma") ||
-      text.includes("defective") ||
-      text.includes("damaged")
-    ) {
-      return {
-        type: "return_exception",
-        title: "Return Merchandise Authorization (RMA) Dispatch",
-        subtitle: "Generates carrier return label and initiates inventory replacement workflow.",
-        buttonLabel: "Trigger Workflow / Submit Request"
-      };
+    // 3. E-Commerce & Retail Workspace
+    if (isRetail) {
+      const text = (msg.content || "").toLowerCase();
+      const hasProducts = msg.products && msg.products.length > 0;
+      const isReturnOrPolicy =
+        !hasProducts ||
+        text.includes("return") ||
+        text.includes("refund") ||
+        text.includes("warranty") ||
+        text.includes("replacement") ||
+        text.includes("rma") ||
+        text.includes("exchange") ||
+        text.includes("order") ||
+        text.includes("defect") ||
+        text.includes("damaged") ||
+        text.includes("policy") ||
+        text.includes("support") ||
+        (msg.confidenceScore !== undefined && msg.confidenceScore < 0.70);
+
+      if (isReturnOrPolicy) {
+        return {
+          type: "return_exception",
+          title: "Return Merchandise Authorization (RMA) Dispatch",
+          subtitle: "Generates carrier return label and initiates inventory replacement workflow.",
+          buttonLabel: "Trigger Workflow / Submit Request"
+        };
+      }
+      return null;
     }
 
-    // 4. Low-confidence query (only if not already escalated)
-    if (msg.confidenceScore !== undefined && msg.confidenceScore < 0.70) {
-      return {
-        type: "support_escalation",
-        title: "Specialist Support Dispatch",
-        subtitle: "Dispatches conversational transcript and audit log to on-call support team via n8n.",
-        buttonLabel: "Trigger Workflow / Submit Request"
-      };
-    }
-
-    // 5. General People Operations for hr_ops
-    if (wsId === "hr_ops" && (text.includes("leave") || text.includes("pto") || text.includes("holiday") || text.includes("remote") || text.includes("laptop") || text.includes("benefit"))) {
-      return {
-        type: "hr_ops_request",
-        title: "People Operations Ticket Dispatch",
-        subtitle: "Securely logs internal HR inquiry to the confidential employee operations queue.",
-        buttonLabel: "Trigger Workflow / Submit Request"
-      };
-    }
-
-    return null;
+    // 4. Custom Workspaces (e.g., Apex Motors)
+    return {
+      type: "priority_escalation",
+      title: "Priority Customer Escalation Dispatch",
+      subtitle: "Dispatches inquiry and customer details directly to priority service queue via n8n.",
+      buttonLabel: "Trigger Workflow / Submit Request"
+    };
   };
 
   return (
@@ -261,7 +274,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         {messages.map((msg, idx) => {
           const isUser = msg.role === "user";
           const isReasoningOpen = !!expandedReasoning[msg.id];
-          const action = !isUser ? getAgenticActionForMessage(msg, activeWorkspace.id) : null;
+          const action = !isUser ? getAgenticActionForMessage(msg, activeWorkspace.id, activeWorkspace.name) : null;
 
           // Find the user's original query that prompted this assistant response
           const userQuery = !isUser
@@ -570,7 +583,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                     ticket_id: formattedActionTicketId,
                                     status: "OPEN",
                                     webhook_status: "dispatched",
-                                    n8n_status: "dispatched"
+                                    n8n_status: "dispatched",
+                                    workspace_id: activeWorkspace.id,
+                                    brand_name: activeWorkspace.name
                                   },
                                   query: userQuery,
                                   timestamp: msg.timestamp

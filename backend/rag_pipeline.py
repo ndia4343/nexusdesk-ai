@@ -927,17 +927,17 @@ def grader_node(state: AgentState) -> Dict[str, Any]:
 
 DEFAULT_WORKSPACE_METADATA: Dict[str, Dict[str, str]] = {
     "retail_ops": {
-        "brand_name": "NexusDesk Retail & E-Commerce",
+        "brand_name": "E-Commerce & Retail",
         "escalation_email": "support@nexusdesk.com",
         "sla_text": "2-Hour Response Time SLA (Priority Support)"
     },
     "clinic_ops": {
-        "brand_name": "NexusDesk Clinical & Health Network",
+        "brand_name": "Clinic & Patient Support",
         "escalation_email": "clinical-support@nexusdesk.com",
         "sla_text": "1-Hour Urgent Clinical SLA (EHR Intake Queue)"
     },
     "hr_ops": {
-        "brand_name": "NexusDesk People Operations & HR",
+        "brand_name": "HR & Employee Operations",
         "escalation_email": "hr-ops@nexusdesk.com",
         "sla_text": "24-Hour Confidential HR SLA (People Operations Queue)"
     }

@@ -236,17 +236,39 @@ export default function Home() {
 
   // Interactive Agentic Action handler
   const handleTriggerAction = async (messageId: string, action: AgenticAction, queryText: string) => {
+    const activeWs = workspaces.find((w) => w.id === activeWorkspaceId) || activeWorkspace;
+    const brandName =
+      activeWs?.name ||
+      (activeWorkspaceId === "hr_ops" || activeWorkspaceId === "hr"
+        ? "HR & Employee Operations"
+        : activeWorkspaceId === "clinic_ops" || activeWorkspaceId === "clinic"
+        ? "Clinic & Patient Support"
+        : activeWorkspaceId === "retail_ops" || activeWorkspaceId === "retail"
+        ? "E-Commerce & Retail"
+        : activeWorkspaceId);
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/action`, {
+      const payload = {
+        workspace_id: activeWorkspaceId,
+        brand_name: brandName,
+        session_id: activeSessionId,
+        action_type: action.type,
+        customer_query: queryText
+      };
+
+      let res = await fetch(`${API_BASE_URL}/api/escalate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspace_id: activeWorkspaceId,
-          session_id: activeSessionId,
-          action_type: action.type,
-          customer_query: queryText
-        })
+        body: JSON.stringify(payload)
       });
+
+      if (res.status === 404) {
+        res = await fetch(`${API_BASE_URL}/api/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      }
 
       let ticketId = `#ND-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
       let webhookStatus = "queued_offline";
@@ -278,6 +300,7 @@ export default function Home() {
             webhook_status: webhookStatus,
             n8n_status: webhookStatus,
             workspace_id: activeWorkspaceId,
+            brand_name: brandName,
             query: queryText,
             timestamp
           },
@@ -305,6 +328,7 @@ export default function Home() {
             webhook_status: "queued_offline",
             n8n_status: "queued_offline",
             workspace_id: activeWorkspaceId,
+            brand_name: brandName,
             query: queryText,
             timestamp: ts
           },

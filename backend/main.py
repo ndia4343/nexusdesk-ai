@@ -168,9 +168,11 @@ class ChatResponse(BaseModel):
 
 class ActionPayload(BaseModel):
     workspace_id: str = "retail_ops"
+    brand_name: Optional[str] = None
     session_id: str = "default_session"
     action_type: str = "workflow_dispatch"
     customer_query: str
+    customer_email: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
 
 
@@ -180,6 +182,7 @@ class ActionResponse(BaseModel):
     webhook_status: str
     n8n_status: str
     workspace_id: str
+    brand_name: Optional[str] = None
     query: str
     action_type: str
     timestamp: str
@@ -420,14 +423,42 @@ async def delete_knowledge(workspace_id: str = "retail_ops"):
 
 
 @app.post("/api/action", response_model=ActionResponse, tags=["Agentic Actions"])
+@app.post("/api/escalate", response_model=ActionResponse, tags=["Agentic Actions"])
 async def trigger_agentic_action(payload: ActionPayload):
     """Dispatches a structured operational request (expense, booking, return, etc.) to the n8n webhook and records the support ticket."""
     ticket_id = f"#ND-{uuid.uuid4().hex[:6].upper()}"
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     webhook_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
 
+    raw_ws = (payload.workspace_id or "retail_ops").strip()
+    norm_ws = raw_ws.lower()
+    if norm_ws in ("demo", "retail", "retail_ops", "ecommerce"):
+        norm_ws = "retail_ops"
+    elif norm_ws in ("clinic", "clinic_ops", "healthcare"):
+        norm_ws = "clinic_ops"
+    elif norm_ws in ("hr", "hr_ops", "internal", "people & operations"):
+        norm_ws = "hr_ops"
+
+    # Workspace metadata lookup
+    ws_meta = get_workspace_metadata(norm_ws) if get_workspace_metadata else {}
+
+    # Brand name resolution
+    if payload.brand_name and payload.brand_name.strip() and payload.brand_name.strip().lower() not in (raw_ws.lower(), norm_ws):
+        brand_name = payload.brand_name.strip()
+    elif norm_ws == "hr_ops":
+        brand_name = "HR & Employee Operations"
+    elif norm_ws == "clinic_ops":
+        brand_name = "Clinic & Patient Support"
+    elif norm_ws == "retail_ops":
+        brand_name = "E-Commerce & Retail"
+    else:
+        brand_name = ws_meta.get("brand_name") or raw_ws.replace("_", " ").title()
+
+    escalation_email = ws_meta.get("escalation_email", "contact@zavianlabs.com")
+    sla_text = ws_meta.get("sla_text", "Under 2-4 Hours (Tier 1 Support SLA)")
+
     email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', payload.customer_query or "")
-    customer_email = email_match.group(0) if email_match else "Not Provided"
+    customer_email = payload.customer_email or (email_match.group(0) if email_match else "Not Provided")
 
     webhook_payload = {
         "ticket_id": ticket_id,
@@ -435,7 +466,10 @@ async def trigger_agentic_action(payload: ActionPayload):
         "action_type": payload.action_type,
         "customer_query": payload.customer_query,
         "customer_email": customer_email,
-        "workspace_id": payload.workspace_id,
+        "workspace_id": norm_ws,
+        "brand_name": brand_name,
+        "escalation_email": escalation_email,
+        "sla_text": sla_text,
         "details": payload.details or {},
         "timestamp": timestamp
     }
@@ -464,7 +498,8 @@ async def trigger_agentic_action(payload: ActionPayload):
                 confidence_score=0.98,
                 status="OPEN",
                 n8n_status=webhook_status,
-                workspace_id=payload.workspace_id
+                workspace_id=norm_ws,
+                customer_email=customer_email
             )
         except Exception as e:
             logger.warning("Failed to persist action ticket: %s", e)
@@ -475,11 +510,12 @@ async def trigger_agentic_action(payload: ActionPayload):
         ticket_id=ticket_id,
         webhook_status=webhook_status,
         n8n_status=webhook_status,
-        workspace_id=payload.workspace_id,
+        workspace_id=norm_ws,
+        brand_name=brand_name,
         query=payload.customer_query,
         action_type=payload.action_type,
         timestamp=timestamp,
-        message=f"{action_label} successfully queued and dispatched to {payload.workspace_id} workflow."
+        message=f"{action_label} successfully queued and dispatched to {brand_name} workflow."
     )
 
 
